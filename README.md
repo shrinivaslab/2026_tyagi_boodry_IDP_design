@@ -1,6 +1,6 @@
 # theory-idp-design
 
-This repository contains code corresponding to the paper titled "Physics-guided de novo design of intrinsically disordered proteins". We provide worked examples in `example_usage.ipynb`for the following example optimizations:
+This repository contains code corresponding to the paper titled "Physics-guided design of intrinsically disordered proteins". We provide worked examples in `example_usage.ipynb`for the following example optimizations:
 
 - Interaction parameter optimization
 - Salt sensor optimization
