@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>theory_idp_design documentation &#8212; theory_idp_design 2026 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=057308f9" />
+    <script src="_static/documentation_options.js?v=fc6fd62b"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  <div class="document">
+    
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">theory_idp_design</a></h1>
+
+
+
+<p class="blurb">Physics-informed IDP sequence design via differentiable optimization</p>
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/designer.html"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/predictor.html"><code class="docutils literal notranslate"><span class="pre">models.predictor</span></code> — Predictor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/prediction_model.html"><code class="docutils literal notranslate"><span class="pre">models.prediction_model</span></code> — Physics Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/ff_models.html"><code class="docutils literal notranslate"><span class="pre">models.ff_models</span></code> — Force Fields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/metapredict_jax.html"><code class="docutils literal notranslate"><span class="pre">models.metapredict_jax</span></code> — Disorder Predictor</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="usage.html" title="next chapter">Usage</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="theory-idp-design-documentation">
+<h1>theory_idp_design documentation<a class="headerlink" href="#theory-idp-design-documentation" title="Link to this heading">¶</a></h1>
+<p><strong>theory_idp_design</strong> is a Python library for designing intrinsically
+disordered protein (IDP) sequences via differentiable optimization over
+continuous sequence representations. It combines coarse-grained physics
+models of IDP interactions with JAX-based gradient descent to produce
+sequences that satisfy target thermodynamic properties.</p>
+<p>The library supports multiple force fields (MPIPI, HPS, CALVADOS, KH-D)
+and physics models (dimer virial, RPA, FINCHES), and can optimize for a
+variety of design objectives including target interaction parameters,
+stimulus-responsive switching, multi-condition behavior, and inter-chain
+interactions.</p>
+<section id="getting-started">
+<span id="usage-section"></span><h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="usage.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage.html#core-concepts">Core Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage.html#design-types">Design Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage.html#batch-optimization">Batch Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="usage.html#prediction-only">Prediction Only</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="api-reference">
+<span id="api-section"></span><h2>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/designer.html"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/designer.html#module-level-functions">Module-Level Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/designer.html#designer-class">Designer Class</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/predictor.html"><code class="docutils literal notranslate"><span class="pre">models.predictor</span></code> — Predictor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/predictor.html#module-level-constants">Module-Level Constants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/predictor.html#module-level-functions">Module-Level Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/predictor.html#predictor-class">Predictor Class</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/prediction_model.html"><code class="docutils literal notranslate"><span class="pre">models.prediction_model</span></code> — Physics Models</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/prediction_model.html#module-level-constants">Module-Level Constants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/prediction_model.html#dimer-model">Dimer Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/prediction_model.html#rpa-model">RPA Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/prediction_model.html#finches-model">FINCHES Model</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/ff_models.html"><code class="docutils literal notranslate"><span class="pre">models.ff_models</span></code> — Force Fields</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#module-level-constants">Module-Level Constants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#file-i-o-functions">File I/O Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#utility-functions">Utility Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#mpipi-model">MPIPI Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#hps-model">HPS Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#calvados-model">CALVADOS Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/ff_models.html#kh-d-model">KH-D Model</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/metapredict_jax.html"><code class="docutils literal notranslate"><span class="pre">models.metapredict_jax</span></code> — Disorder Predictor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/metapredict_jax.html#key-components">Key Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/metapredict_jax.html#metapredictjax-class">MetapredictJAX Class</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="indices-and-tables">
+<h3>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+    <div class="clearer"></div>
+  </div>
+    <div class="footer">
+      &#169;2026, Neha Tyagi, Jackson Boodry, Vita Chou, Wilton Snead, Krishna Shrinivas.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

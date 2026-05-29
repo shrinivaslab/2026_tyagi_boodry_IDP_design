@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Usage &#8212; theory_idp_design 2026 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=057308f9" />
+    <script src="_static/documentation_options.js?v=fc6fd62b"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="models.designer — Designer" href="api/designer.html" />
+    <link rel="prev" title="theory_idp_design documentation" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  <div class="document">
+    
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">theory_idp_design</a></h1>
+
+
+
+<p class="blurb">Physics-informed IDP sequence design via differentiable optimization</p>
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#core-concepts">Core Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#design-types">Design Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#batch-optimization">Batch Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#prediction-only">Prediction Only</a></li>
+</ul>
+</li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/designer.html"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/predictor.html"><code class="docutils literal notranslate"><span class="pre">models.predictor</span></code> — Predictor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/prediction_model.html"><code class="docutils literal notranslate"><span class="pre">models.prediction_model</span></code> — Physics Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/ff_models.html"><code class="docutils literal notranslate"><span class="pre">models.ff_models</span></code> — Force Fields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/metapredict_jax.html"><code class="docutils literal notranslate"><span class="pre">models.metapredict_jax</span></code> — Disorder Predictor</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">theory_idp_design documentation</a></li>
+      <li>Next: <a href="api/designer.html" title="next chapter"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="usage">
+<span id="usage-section"></span><h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
+<section id="installation">
+<span id="installation-section"></span><h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
+<section id="prerequisites">
+<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h3>
+<p>All code was developed and tested with <strong>Python 3.11</strong>. We recommend
+creating a fresh conda or mamba environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>idp_design<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
+conda<span class="w"> </span>activate<span class="w"> </span>idp_design
+</pre></div>
+</div>
+</section>
+<section id="clone-the-repository">
+<h3>Clone the repository<a class="headerlink" href="#clone-the-repository" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>&lt;repository-url&gt;
+<span class="nb">cd</span><span class="w"> </span>theory_idp_design
+</pre></div>
+</div>
+</section>
+<section id="install-dependencies-cpu">
+<h3>Install dependencies (CPU)<a class="headerlink" href="#install-dependencies-cpu" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>cpu_requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="install-dependencies-gpu">
+<h3>Install dependencies (GPU)<a class="headerlink" href="#install-dependencies-gpu" title="Link to this heading">¶</a></h3>
+<p>For GPU-accelerated optimization with CUDA support:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>gpu_requirements.txt
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The GPU requirements install <code class="docutils literal notranslate"><span class="pre">jax[cuda12]</span></code>. Make sure your system has
+a compatible CUDA toolkit and cuDNN installed.</p>
+</div>
+</section>
+</section>
+<section id="core-concepts">
+<h2>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading">¶</a></h2>
+<section id="sequence-representation">
+<h3>Sequence Representation<a class="headerlink" href="#sequence-representation" title="Link to this heading">¶</a></h3>
+<p>Sequences are represented as <strong>probabilistic sequences</strong> (<code class="docutils literal notranslate"><span class="pre">pseq</span></code>):
+continuous relaxations of one-hot encoded amino acid sequences. Each
+position holds a probability distribution over the 23-character residue
+alphabet:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>RES_ALPHA = &quot;MGKTRADEYVLQWFSHNPCIXZB&quot;
+</pre></div>
+</div>
+<p>The last three characters (<code class="docutils literal notranslate"><span class="pre">X</span></code>, <code class="docutils literal notranslate"><span class="pre">Z</span></code>, <code class="docutils literal notranslate"><span class="pre">B</span></code>) represent modified
+residues: methylated arginine, phosphorylated serine, and phosphorylated
+threonine, respectively.</p>
+<p>During optimization, raw logits are passed through a temperature-scaled
+softmax (Gumbel-softmax annealing) to produce <code class="docutils literal notranslate"><span class="pre">pseq</span></code> values. The
+temperature is annealed from 1.0 to 0.001 over the course of
+optimization, gradually sharpening the distribution toward a discrete
+sequence.</p>
+</section>
+<section id="physics-models">
+<h3>Physics Models<a class="headerlink" href="#physics-models" title="Link to this heading">¶</a></h3>
+<p>Three physics models are available, each computing interaction parameters
+from probabilistic sequences:</p>
+<dl class="simple">
+<dt><strong>Dimer model</strong> (<code class="docutils literal notranslate"><span class="pre">model_name='dimer'</span></code>)</dt><dd><p>Computes second virial coefficients (<span class="math notranslate nohighlight">\(B_2\)</span>) by contracting
+dimer frequency vectors with a precomputed 529×529 interaction
+tensor derived from numerical integration of the Mayer f-function.
+The result is normalized to a <span class="math notranslate nohighlight">\(\chi\)</span> parameter.</p>
+</dd>
+<dt><strong>RPA model</strong> (<code class="docutils literal notranslate"><span class="pre">model_name='rpa'</span></code>)</dt><dd><p>Computes an effective Flory <span class="math notranslate nohighlight">\(\chi\)</span> as the sum of mean-field
+(Debye-Hückel), fluctuation (Random Phase Approximation), and
+short-range hydrophobic contributions. Accounts for sequence-level
+charge patterning.</p>
+</dd>
+<dt><strong>FINCHES model</strong> (<code class="docutils literal notranslate"><span class="pre">model_name='finches'</span></code>)</dt><dd><p>Computes pairwise residue interaction energies with optional
+charge-context and aliphatic-cluster weighting corrections, then
+decomposes into attractive/repulsive contributions relative to a
+null baseline.</p>
+</dd>
+</dl>
+</section>
+<section id="force-fields">
+<h3>Force Fields<a class="headerlink" href="#force-fields" title="Link to this heading">¶</a></h3>
+<p>Each physics model uses a coarse-grained force field that defines the
+pairwise interaction potentials:</p>
+<ul class="simple">
+<li><p><strong>MPIPI</strong> (<code class="docutils literal notranslate"><span class="pre">ff_type='mpipi'</span></code> or <code class="docutils literal notranslate"><span class="pre">'mpipi_gg'</span></code>): Wang-Frenkel + Debye-Hückel</p></li>
+<li><p><strong>HPS</strong> (<code class="docutils literal notranslate"><span class="pre">ff_type='hps_dignon'</span></code>, <code class="docutils literal notranslate"><span class="pre">'hps_tesei'</span></code>, <code class="docutils literal notranslate"><span class="pre">'hps_urry'</span></code>, <code class="docutils literal notranslate"><span class="pre">'hps_fb'</span></code>): Ashbaugh-Hatch + Debye-Hückel</p></li>
+<li><p><strong>CALVADOS</strong> (<code class="docutils literal notranslate"><span class="pre">ff_type='calvados1'</span></code> or <code class="docutils literal notranslate"><span class="pre">'calvados2'</span></code>): HPS-LJ + Yukawa</p></li>
+<li><p><strong>KH-D</strong> (<code class="docutils literal notranslate"><span class="pre">ff_type='kh_d'</span></code>): Ashbaugh-Hatch + Debye-Hückel (Kim-Hummer)</p></li>
+</ul>
+</section>
+<section id="intrinsic-disorder-constraint">
+<h3>Intrinsic Disorder Constraint<a class="headerlink" href="#intrinsic-disorder-constraint" title="Link to this heading">¶</a></h3>
+<p>An optional <strong>MetapredictV3</strong> constraint ensures designed sequences
+remain intrinsically disordered. When enabled, a differentiable loss
+multiplier penalizes sequences whose predicted disorder score falls
+below an annealed threshold (ramped from 0.2 to 0.8 over 80% of
+iterations).</p>
+</section>
+</section>
+<section id="design-types">
+<h2>Design Types<a class="headerlink" href="#design-types" title="Link to this heading">¶</a></h2>
+<p>The <a class="reference internal" href="api/designer.html#models.designer.Designer" title="models.designer.Designer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Designer</span></code></a> class supports several design
+objectives, each accessed through <a class="reference internal" href="api/designer.html#id5" title="models.designer.Designer.design_sequence"><code class="xref py py-meth docutils literal notranslate"><span class="pre">design_sequence()</span></code></a>:</p>
+<section id="value-optimization-design-type-value">
+<h3>Value Optimization (<code class="docutils literal notranslate"><span class="pre">design_type='value'</span></code>)<a class="headerlink" href="#value-optimization-design-type-value" title="Link to this heading">¶</a></h3>
+<p>Optimize a single sequence to match a target <span class="math notranslate nohighlight">\(\chi\)</span> value under
+one thermodynamic condition.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">models.designer</span><span class="w"> </span><span class="kn">import</span> <span class="n">Designer</span>
+
+<span class="n">designer</span> <span class="o">=</span> <span class="n">Designer</span><span class="p">(</span><span class="n">model_name</span><span class="o">=</span><span class="s1">&#39;dimer&#39;</span><span class="p">,</span> <span class="n">ff_type</span><span class="o">=</span><span class="s1">&#39;calvados2&#39;</span><span class="p">)</span>
+<span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;value&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">target_value</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="d-switch-optimization-design-type-1d-switch">
+<h3>1D Switch Optimization (<code class="docutils literal notranslate"><span class="pre">design_type='1d_switch'</span></code>)<a class="headerlink" href="#d-switch-optimization-design-type-1d-switch" title="Link to this heading">¶</a></h3>
+<p>Design a sequence that transitions between condensed and expanded states
+across two conditions (e.g., different temperatures or salt concentrations).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;1d_switch&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">,</span> <span class="mi">450</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">response_type</span><span class="o">=</span><span class="s1">&#39;contractor&#39;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="designed-response-design-type-designed-response">
+<h3>Designed Response (<code class="docutils literal notranslate"><span class="pre">design_type='designed_response'</span></code>)<a class="headerlink" href="#designed-response-design-type-designed-response" title="Link to this heading">¶</a></h3>
+<p>Optimize a sequence whose <span class="math notranslate nohighlight">\(\chi\)</span> follows a prescribed profile
+(linear, early step, late step, or bandpass) as a condition variable is
+swept between two endpoints.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;designed_response&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">response_type</span><span class="o">=</span><span class="s1">&#39;contractor&#39;</span><span class="p">,</span>
+    <span class="n">response_profile</span><span class="o">=</span><span class="s1">&#39;late_step&#39;</span><span class="p">,</span>
+    <span class="n">phos_locs</span><span class="o">=</span><span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">35</span><span class="p">,</span> <span class="mi">40</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="multi-dimensional-switch-design-type-multi-dimensional-switch">
+<h3>Multi-Dimensional Switch (<code class="docutils literal notranslate"><span class="pre">design_type='multi_dimensional_switch'</span></code>)<a class="headerlink" href="#multi-dimensional-switch-design-type-multi-dimensional-switch" title="Link to this heading">¶</a></h3>
+<p>Generalization of 1D switching to N conditions, each assigned a binary
+target state (condensed or expanded).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;multi_dimensional_switch&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">,</span> <span class="mi">450</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">targets</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>
+    <span class="n">phos_locs</span><span class="o">=</span><span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">35</span><span class="p">,</span> <span class="mi">40</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="reference-optimization-design-type-reference">
+<h3>Reference Optimization (<code class="docutils literal notranslate"><span class="pre">design_type='reference'</span></code>)<a class="headerlink" href="#reference-optimization-design-type-reference" title="Link to this heading">¶</a></h3>
+<p>Design a sequence that maximizes attraction (client) or repulsion with a
+fixed reference sequence.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;reference&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">reference_sequence</span><span class="o">=</span><span class="s1">&#39;GSGSGSGSGS&#39;</span><span class="p">,</span>
+    <span class="n">opt_type</span><span class="o">=</span><span class="s1">&#39;client&#39;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="two-sequence-optimization-design-type-two-sequence">
+<h3>Two-Sequence Optimization (<code class="docutils literal notranslate"><span class="pre">design_type='two_sequence'</span></code>)<a class="headerlink" href="#two-sequence-optimization-design-type-two-sequence" title="Link to this heading">¶</a></h3>
+<p>Simultaneously co-optimize two sequences for joint phase behavior
+(co-condensation or demixing).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;two_sequence&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">behavior</span><span class="o">=</span><span class="s1">&#39;condensed_mix&#39;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="interaction-matrix-optimization-design-type-interaction-matrix">
+<h3>Interaction Matrix Optimization (<code class="docutils literal notranslate"><span class="pre">design_type='interaction_matrix'</span></code>)<a class="headerlink" href="#interaction-matrix-optimization-design-type-interaction-matrix" title="Link to this heading">¶</a></h3>
+<p>Optimize a sequence to produce a target spatial pattern of residue-residue
+interactions (e.g., attractive ends with repulsive middle).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seq</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_sequence</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">design_type</span><span class="o">=</span><span class="s1">&#39;interaction_matrix&#39;</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="batch-optimization">
+<h2>Batch Optimization<a class="headerlink" href="#batch-optimization" title="Link to this heading">¶</a></h2>
+<p>For running many independent value optimizations in parallel (particularly
+useful on GPU), use <a class="reference internal" href="api/designer.html#id4" title="models.designer.Designer.design_batch"><code class="xref py py-meth docutils literal notranslate"><span class="pre">design_batch()</span></code></a>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">seqs</span><span class="p">,</span> <span class="n">results</span> <span class="o">=</span> <span class="n">designer</span><span class="o">.</span><span class="n">design_batch</span><span class="p">(</span>
+    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">num_sequences</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">num_iterations</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+    <span class="n">phosphorylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">methylation</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">target_values</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This uses <code class="docutils literal notranslate"><span class="pre">jax.vmap</span></code> to parallelize across sequences and
+<code class="docutils literal notranslate"><span class="pre">jax.lax.scan</span></code> to compile the iteration loop, yielding significant
+speedups on GPU hardware.</p>
+</section>
+<section id="prediction-only">
+<h2>Prediction Only<a class="headerlink" href="#prediction-only" title="Link to this heading">¶</a></h2>
+<p>To compute interaction parameters for existing sequences without
+optimization, use the <a class="reference internal" href="api/predictor.html#models.predictor.Predictor" title="models.predictor.Predictor"><code class="xref py py-class docutils literal notranslate"><span class="pre">Predictor</span></code></a> class
+directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">models.predictor</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
+
+<span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="o">=</span><span class="s1">&#39;dimer&#39;</span><span class="p">,</span>
+    <span class="n">ff_type</span><span class="o">=</span><span class="s1">&#39;calvados2&#39;</span><span class="p">,</span>
+    <span class="n">temps</span><span class="o">=</span><span class="p">[</span><span class="mi">300</span><span class="p">],</span> <span class="n">salts</span><span class="o">=</span><span class="p">[</span><span class="mi">150</span><span class="p">],</span> <span class="n">pHs</span><span class="o">=</span><span class="p">[</span><span class="mf">7.4</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="c1"># Single pair</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict_pair</span><span class="p">(</span><span class="s2">&quot;GSGSGSGSGS&quot;</span><span class="p">,</span> <span class="s2">&quot;GSGSGSGSGS&quot;</span><span class="p">)</span>
+
+<span class="c1"># Batch</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict_batch</span><span class="p">(</span>
+    <span class="n">seqs1</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;GSKRGSGSGS&quot;</span><span class="p">,</span> <span class="s2">&quot;DDDDDKKKKK&quot;</span><span class="p">],</span>
+    <span class="n">seqs2</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;GSKRGSGSGS&quot;</span><span class="p">,</span> <span class="s2">&quot;DDDDDKKKKK&quot;</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+    <div class="clearer"></div>
+  </div>
+    <div class="footer">
+      &#169;2026, Neha Tyagi, Jackson Boodry, Vita Chou, Wilton Snead, Krishna Shrinivas.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/usage.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

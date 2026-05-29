@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>models.ff_models &#8212; theory_idp_design 2026 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=057308f9" />
+    <script src="../../_static/documentation_options.js?v=fc6fd62b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  <div class="document">
+    
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">theory_idp_design</a></h1>
+
+
+
+<p class="blurb">Physics-informed IDP sequence design via differentiable optimization</p>
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api/designer.html"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/predictor.html"><code class="docutils literal notranslate"><span class="pre">models.predictor</span></code> — Predictor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/prediction_model.html"><code class="docutils literal notranslate"><span class="pre">models.prediction_model</span></code> — Physics Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/ff_models.html"><code class="docutils literal notranslate"><span class="pre">models.ff_models</span></code> — Force Fields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/metapredict_jax.html"><code class="docutils literal notranslate"><span class="pre">models.metapredict_jax</span></code> — Disorder Predictor</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for models.ff_models</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">onp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">itertools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unittest</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">optax</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax</span><span class="w"> </span><span class="kn">import</span> <span class="n">vmap</span><span class="p">,</span> <span class="n">jit</span><span class="p">,</span> <span class="n">value_and_grad</span><span class="p">,</span> <span class="n">lax</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax.lib</span><span class="w"> </span><span class="kn">import</span> <span class="n">xla_bridge</span>
+<span class="c1"># print(xla_bridge.get_backend().platform)</span>
+
+
+<span class="n">ROOT</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">kb</span> <span class="o">=</span> <span class="mf">0.0019872036</span> <span class="c1"># kcal/mol/K</span>
+<span class="n">RES_ALPHA</span> <span class="o">=</span> <span class="s2">&quot;MGKTRADEYVLQWFSHNPCIXZB&quot;</span>
+<span class="n">NUM_RESIDUES</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">RES_ALPHA</span><span class="p">)</span>
+<span class="k">assert</span><span class="p">(</span><span class="n">NUM_RESIDUES</span> <span class="o">==</span> <span class="mi">23</span><span class="p">)</span>
+
+<span class="n">DEBYE_RC</span> <span class="o">=</span> <span class="mf">90.0</span>
+
+<span class="n">RES_CODE</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="s2">&quot;Ala&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;R&quot;</span><span class="p">:</span> <span class="s2">&quot;Arg&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;D&quot;</span><span class="p">:</span> <span class="s2">&quot;Asp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;N&quot;</span><span class="p">:</span> <span class="s2">&quot;Asn&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;C&quot;</span><span class="p">:</span> <span class="s2">&quot;Cys&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;E&quot;</span><span class="p">:</span> <span class="s2">&quot;Glu&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Q&quot;</span><span class="p">:</span> <span class="s2">&quot;Gln&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;G&quot;</span><span class="p">:</span> <span class="s2">&quot;Gly&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;H&quot;</span><span class="p">:</span> <span class="s2">&quot;His&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;I&quot;</span><span class="p">:</span> <span class="s2">&quot;Ile&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;L&quot;</span><span class="p">:</span> <span class="s2">&quot;Leu&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;K&quot;</span><span class="p">:</span> <span class="s2">&quot;Lys&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;M&quot;</span><span class="p">:</span> <span class="s2">&quot;Met&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;F&quot;</span><span class="p">:</span> <span class="s2">&quot;Phe&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;P&quot;</span><span class="p">:</span> <span class="s2">&quot;Pro&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;S&quot;</span><span class="p">:</span> <span class="s2">&quot;Ser&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="s2">&quot;Thr&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;W&quot;</span><span class="p">:</span> <span class="s2">&quot;Trp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="s2">&quot;Tyr&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;V&quot;</span><span class="p">:</span> <span class="s2">&quot;Val&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="s2">&quot;mArg&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="s2">&quot;pSer&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="s2">&quot;pThr&quot;</span>
+<span class="p">}</span>
+
+<span class="n">RES_3_TO_1</span> <span class="o">=</span> <span class="p">{</span><span class="n">value</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span> <span class="n">key</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">RES_CODE</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+
+<div class="viewcode-block" id="read_MPIPI_ff_params">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.read_MPIPI_ff_params">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_MPIPI_ff_params</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read MPIPI force field parameters from a whitespace-delimited file.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fpath: Path to the MPIPI parameter file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tuple of (eps_table, eps_flattened, sigma_flattened, nu_flattened,</span>
+<span class="sd">        mu_flattened, rc_flattened) — the 23x23 epsilon table and flattened</span>
+<span class="sd">        (529,) arrays for each parameter.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">mpipi_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">fpath</span><span class="p">,</span> <span class="n">delim_whitespace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> 
+                         <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;res1&#39;</span><span class="p">,</span> <span class="s1">&#39;res2&#39;</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">,</span> <span class="s1">&#39;sigma&#39;</span><span class="p">,</span> <span class="s1">&#39;nu&#39;</span><span class="p">,</span> <span class="s1">&#39;mu&#39;</span><span class="p">,</span> <span class="s1">&#39;rc&#39;</span><span class="p">])</span>
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">nu_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">mu_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">rc_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">df_row</span> <span class="o">=</span> <span class="n">mpipi_df</span><span class="p">[(</span><span class="n">mpipi_df</span><span class="p">[</span><span class="s1">&#39;res1&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">mpipi_df</span><span class="p">[</span><span class="s1">&#39;res2&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">)]</span>
+            <span class="k">assert</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df_row</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">df_row</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">eps</span>
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">eps</span>
+
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">sigma</span>
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">sigma</span>
+
+            <span class="n">nu_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">nu</span>
+            <span class="n">nu_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">nu</span>
+
+            <span class="n">mu_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">mu</span>
+            <span class="n">mu_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">mu</span>
+            
+            <span class="n">rc_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">rc</span>
+            <span class="n">rc_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">rc</span>
+
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">nu_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">nu_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">mu_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">mu_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">rc_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">rc_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">nu_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">mu_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">rc_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">eps_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">sigma_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">nu_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nu_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">mu_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mu_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">rc_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rc_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">nu_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">nu_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">mu_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">mu_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">rc_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">rc_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">eps_table</span><span class="p">,</span> <span class="n">eps_flattened</span><span class="p">,</span> <span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">nu_flattened</span><span class="p">,</span> <span class="n">mu_flattened</span><span class="p">,</span> <span class="n">rc_flattened</span></div>
+
+
+<div class="viewcode-block" id="read_HPS">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.read_HPS">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_HPS</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read HPS force field parameters from a whitespace-delimited file.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fpath: Path to the HPS parameter file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tuple of (lambda_table, eps_flattened, sigma_flattened,</span>
+<span class="sd">        lambda_flattened) — the 23x23 lambda table and flattened (529,) arrays.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">hps_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">fpath</span><span class="p">,</span> <span class="n">delim_whitespace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> 
+                         <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;res1&#39;</span><span class="p">,</span> <span class="s1">&#39;res2&#39;</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">,</span> <span class="s1">&#39;sigma&#39;</span><span class="p">,</span> <span class="s1">&#39;lambda_&#39;</span><span class="p">])</span>
+    
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">lambda_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">df_row</span> <span class="o">=</span> <span class="n">hps_df</span><span class="p">[(</span><span class="n">hps_df</span><span class="p">[</span><span class="s1">&#39;res1&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">hps_df</span><span class="p">[</span><span class="s1">&#39;res2&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">)]</span>
+            <span class="k">assert</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df_row</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">df_row</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">eps</span>
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">eps</span>
+
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">sigma</span>
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">sigma</span>
+
+            <span class="n">lambda_table</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">lambda_</span>
+            <span class="n">lambda_table</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_row</span><span class="o">.</span><span class="n">lambda_</span>
+
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">lambda_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lambda_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">lambda_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">eps_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">sigma_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">lambda_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lambda_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">lambda_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lambda_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">lambda_table</span><span class="p">,</span> <span class="n">eps_flattened</span><span class="p">,</span> <span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">lambda_flattened</span></div>
+
+
+<div class="viewcode-block" id="read_calvados">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.read_calvados">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_calvados</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read CALVADOS force field parameters from a text file.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fpath: Path to the CALVADOS parameter file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tuple of (lambdas, lambdas_flattened, sigmas_flattened) —</span>
+<span class="sd">        per-residue lambdas and pairwise-averaged flattened (529,) arrays.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lambdas</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">sigmas</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">fpath</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+            <span class="n">idx</span><span class="p">,</span> <span class="n">mass</span><span class="p">,</span> <span class="n">charge</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">,</span> <span class="n">aa_name</span> <span class="o">=</span> <span class="n">parts</span>
+            <span class="n">lambdas</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">lambda_</span><span class="p">))</span>
+            <span class="n">sigmas</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">sigma</span><span class="p">))</span>
+    <span class="n">lambdas</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lambdas</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigmas</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigmas</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="n">lambdas_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">sigmas_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">lambda_ij</span> <span class="o">=</span> <span class="p">(</span><span class="n">lambdas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lambdas</span><span class="p">[</span><span class="n">j</span><span class="p">])</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="n">lambdas_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lambda_ij</span><span class="p">)</span>
+            <span class="n">sigma_ij</span> <span class="o">=</span> <span class="p">(</span><span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">sigmas</span><span class="p">[</span><span class="n">j</span><span class="p">])</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="n">sigmas_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sigma_ij</span><span class="p">)</span>
+    <span class="n">lambdas_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lambdas_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigmas_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigmas_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">lambdas</span><span class="p">,</span> <span class="n">lambdas_flattened</span><span class="p">,</span> <span class="n">sigmas_flattened</span></div>
+
+
+<div class="viewcode-block" id="read_KH_D">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.read_KH_D">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_KH_D</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read Kim-Hummer-D force field parameters from a text file.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fpath: Path to the KH-D parameter file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tuple of (eps_table, eps_flattened, sigma_flattened, lambda_flattened) —</span>
+<span class="sd">        the 23x23 epsilon table and flattened (529,) arrays. Lambda is +1</span>
+<span class="sd">        for repulsive pairs and -1 for attractive.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">fpath</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+            <span class="n">res1</span><span class="p">,</span> <span class="n">res2</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">eps</span> <span class="o">=</span> <span class="n">parts</span>
+            <span class="n">res1</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">res1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="n">res2</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">res2</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="n">sigma</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">sigma</span><span class="p">)</span>
+            <span class="n">eps</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">eps</span><span class="p">)</span>
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">res1</span><span class="p">,</span> <span class="n">res2</span><span class="p">]</span> <span class="o">=</span> <span class="n">eps</span>
+            <span class="n">eps_table</span><span class="p">[</span><span class="n">res2</span><span class="p">,</span> <span class="n">res1</span><span class="p">]</span> <span class="o">=</span> <span class="n">eps</span>
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">res1</span><span class="p">,</span> <span class="n">res2</span><span class="p">]</span> <span class="o">=</span> <span class="n">sigma</span>
+            <span class="n">sigma_table</span><span class="p">[</span><span class="n">res2</span><span class="p">,</span> <span class="n">res1</span><span class="p">]</span> <span class="o">=</span> <span class="n">sigma</span>
+    <span class="n">eps_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_table</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">lambda_flattened</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="n">eps_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">sigma_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sigma_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+            <span class="n">lambda_flattened</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">eps_table</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">))</span>
+    <span class="n">eps_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">sigma_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">lambda_flattened</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lambda_flattened</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">eps_table</span><span class="p">,</span> <span class="n">eps_flattened</span><span class="p">,</span> <span class="n">sigma_flattened</span><span class="p">,</span> <span class="n">lambda_flattened</span></div>
+
+
+
+
+
+<div class="viewcode-block" id="MPIPI_model">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">MPIPI_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Mpipi coarse-grained force field for IDP interactions.</span>
+
+<span class="sd">    Combines Wang-Frenkel short-range potentials with Debye-Huckel</span>
+<span class="sd">    electrostatics. Supports normal, GG, and FINCHES variants.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="MPIPI_model.__init__">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;GG&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the MPIPI model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            version: &#39;GG&#39;, &#39;normal&#39;, or &#39;GG_FINCHES&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="n">version</span>
+
+        <span class="k">if</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;GG&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;MPIPI_GG&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;MPIPI_GG.txt&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">=</span> <span class="mf">0.12578</span>
+        <span class="k">elif</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;MPIPI&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;MPIPI.txt&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">=</span> <span class="mf">0.12578</span>
+        <span class="k">elif</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;GG_FINCHES&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;MPIPI_GG_FINCHES&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;MPIPI_GG_FINCHES.txt&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">=</span> <span class="mf">0.12578</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid version: </span><span class="si">{</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">mu_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rc_flattened</span> <span class="o">=</span> <span class="n">read_MPIPI_ff_params</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fpath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_wang_frenkel</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">wang_frenkel_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coulomb_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span></div>
+
+    
+
+<div class="viewcode-block" id="MPIPI_model.construct_eps_matrix">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.construct_eps_matrix">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_eps_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct the 23x23 epsilon matrix in kJ/mol units.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Negated epsilon table scaled by 4.184 (kcal-&gt;kJ conversion).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">eps_table</span> <span class="o">*</span> <span class="mf">4.184</span></div>
+
+
+<div class="viewcode-block" id="MPIPI_model.calculate_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.calculate_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="mi">7</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-residue-type charges.</span>
+
+<span class="sd">        In &#39;normal&#39; mode, uses fixed partial charges. In &#39;pH&#39; mode,</span>
+<span class="sd">        computes Henderson-Hasselbalch titration charges.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pH: Solution pH (used only in &#39;pH&#39; mode).</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39;.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Charge array of shape (23,), ordered by RES_ALPHA.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span><span class="p">:</span>
+            <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">0.75</span><span class="p">,</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">0.75</span><span class="p">,</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.75</span><span class="p">,</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.75</span><span class="p">,</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">0.375</span><span class="p">,</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span>
+            <span class="p">}</span>
+        <span class="k">elif</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;pH&#39;</span><span class="p">:</span>
+            <span class="n">pKa_values</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">9.69</span><span class="p">,</span>
+                <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="mf">2.34</span><span class="p">,</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="mf">3.86</span><span class="p">,</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="mf">4.25</span><span class="p">,</span>
+                <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mf">8.33</span><span class="p">,</span>
+                <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="mf">10.07</span><span class="p">,</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">6.00</span><span class="p">,</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">10.54</span><span class="p">,</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">12.48</span><span class="p">,</span>
+                <span class="p">}</span>
+
+            <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;N-terminus&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C-terminus&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;E&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;H&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;K&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;R&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span>
+            <span class="p">}</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid pH mode: </span><span class="si">{</span><span class="n">pH_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span></div>
+
+
+    
+<div class="viewcode-block" id="MPIPI_model.create_pair_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.create_pair_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_pair_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">charges</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build all 529 charge pairs from per-residue charges.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            charges: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (529, 2) with [qi, qj] for each pair.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pair_charges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+                <span class="n">pair_charges</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">charges</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">charges</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pair_charges</span><span class="p">)</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">wang_frenkel_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">nu</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">eps</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate the Wang-Frenkel potential at distance r.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance (scalar or array).</span>
+<span class="sd">            r_c: Cutoff distance.</span>
+<span class="sd">            sigma: Length scale parameter.</span>
+<span class="sd">            nu: Exponent parameter.</span>
+<span class="sd">            mu: Exponent parameter.</span>
+<span class="sd">            eps: Well depth (energy scale).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Potential energy at r, zero beyond r_c.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="mi">2</span><span class="o">*</span><span class="n">nu</span> <span class="o">*</span> <span class="p">(</span><span class="n">r_c</span><span class="o">/</span><span class="n">sigma</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span>
+        <span class="n">alpha</span> <span class="o">*=</span> <span class="p">((</span><span class="mi">1</span><span class="o">+</span><span class="mi">2</span><span class="o">*</span><span class="n">nu</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">nu</span> <span class="o">*</span> <span class="p">((</span><span class="n">r_c</span><span class="o">/</span><span class="n">sigma</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)))</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">nu</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">eps</span><span class="o">*</span><span class="n">alpha</span> <span class="o">*</span> <span class="p">((</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="p">((</span><span class="n">r_c</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">nu</span><span class="p">)</span>
+        <span class="n">r_c</span> <span class="o">=</span> <span class="mi">3</span><span class="o">*</span><span class="n">sigma</span>
+
+        
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">wang_frenkel_internal_func_FINCHES</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">nu</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">eps</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wang-Frenkel potential variant used by the FINCHES model.</span>
+
+<span class="sd">        Uses Rij = 3*sigma as the cutoff regardless of r_c.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            r_c: Cutoff distance (unused; Rij = 3*sigma is used instead).</span>
+<span class="sd">            sigma: Length scale parameter.</span>
+<span class="sd">            nu: Exponent parameter.</span>
+<span class="sd">            mu: Exponent parameter.</span>
+<span class="sd">            eps: Well depth.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Potential energy at r.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">Rij</span> <span class="o">=</span> <span class="mi">3</span> <span class="o">*</span><span class="n">sigma</span>
+
+        <span class="n">alpha_ij_term1</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">nu</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">Rij</span><span class="o">/</span><span class="n">sigma</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span>
+        <span class="n">alpha_ij_term2</span> <span class="o">=</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">nu</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">nu</span> <span class="o">*</span> <span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">Rij</span><span class="o">/</span><span class="n">sigma</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">mu</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
+
+        <span class="n">alpha_ij</span> <span class="o">=</span> <span class="n">alpha_ij_term1</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">alpha_ij_term2</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">nu</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">main_term1</span> <span class="o">=</span> <span class="n">eps</span> <span class="o">*</span> <span class="n">alpha_ij</span>
+        <span class="n">main_term2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">mu</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">main_term3</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">power</span><span class="p">(</span><span class="n">Rij</span><span class="o">/</span><span class="n">r</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">mu</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">nu</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">main_term1</span> <span class="o">*</span> <span class="n">main_term2</span> <span class="o">*</span> <span class="n">main_term3</span>
+
+<div class="viewcode-block" id="MPIPI_model.swap_wf_func">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.swap_wf_func">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">swap_wf_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the Wang-Frenkel potential with the FINCHES variant.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_wang_frenkel</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">wang_frenkel_internal_func_FINCHES</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">coulomb_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate screened Coulomb (Debye-Huckel) potential.</span>
+
+<span class="sd">        Uses a fixed dielectric constant of 80 and salt-dependent screening.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Electrostatic cutoff distance.</span>
+<span class="sd">            temp: Temperature in Kelvin (unused in this variant).</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Electrostatic energy at r, zero beyond r_c.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mf">150.0</span><span class="p">)</span>
+        <span class="n">C</span> <span class="o">=</span> <span class="mf">5.513725184e-22</span> <span class="c1"># (1/(4*pi*eps0)  in units of kcal* (Armstrong)/(electron^^2)</span>
+        <span class="c1"># fac1 =  249.4 - 0.788 * temp + 0.00072 * temp**2</span>
+        <span class="c1"># fac2 = 1 - 0.2551 * (salt_conc/1000) + 0.05151 * (salt_conc/1000)**2 - 0.006889 * (salt_conc/1000)**3</span>
+        <span class="c1"># epsilon = fac1 * fac2</span>
+        <span class="n">epsilon</span> <span class="o">=</span> <span class="mf">80.0</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="p">(</span><span class="n">C</span> <span class="o">*</span> <span class="n">qi</span> <span class="o">*</span> <span class="n">qj</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">epsilon</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">k</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">*=</span> <span class="mf">6.022e23</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">coulomb_internal_func_FINCHES</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Screened Coulomb potential variant used by the FINCHES model.</span>
+
+<span class="sd">        Computes Debye-Huckel electrostatics with salt-dependent screening</span>
+<span class="sd">        using SI-based constants and returns energy in kJ/mol.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance in Angstroms.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Cutoff distance (unused).</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Electrostatic energy at r in kJ/mol.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="n">salt_conc</span> <span class="o">/=</span> <span class="mi">1000</span>
+        <span class="n">sqrt_salt</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">salt_conc</span><span class="p">)</span>
+        <span class="n">kappa</span> <span class="o">=</span> <span class="n">sqrt_salt</span> <span class="o">/</span> <span class="mf">3.06</span>
+
+        <span class="n">C</span> <span class="o">=</span> <span class="mf">1.602176634e-19</span>  <span class="c1"># elementary charge constant (in Coulombs)</span>
+        <span class="n">Na</span> <span class="o">=</span> <span class="mf">6.023e23</span>        <span class="c1"># Avogadro&#39;s number (unitless - just a big ol number)</span>
+        <span class="n">conversion_constant</span> <span class="o">=</span> <span class="p">(</span><span class="n">C</span><span class="o">*</span><span class="n">C</span><span class="o">*</span><span class="n">Na</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="mi">4</span> <span class="o">*</span> <span class="mf">8.854187812799999e-12</span><span class="p">)</span>
+        <span class="n">r_meters</span> <span class="o">=</span> <span class="n">r</span> <span class="o">*</span> <span class="mf">1e-10</span> <span class="c1"># convert from Angstroms to meters</span>
+        <span class="n">DH</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">kappa</span><span class="o">*</span><span class="n">r</span><span class="p">)</span>
+        <span class="n">dieletric</span> <span class="o">=</span> <span class="mf">80.0</span>
+
+        <span class="n">energy_in_J</span> <span class="o">=</span> <span class="p">(</span><span class="n">conversion_constant</span> <span class="o">*</span> <span class="n">qi</span> <span class="o">*</span> <span class="n">qj</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">dieletric</span> <span class="o">*</span> <span class="n">r_meters</span><span class="p">)</span> <span class="o">*</span> <span class="n">DH</span>
+
+        <span class="k">return</span> <span class="n">energy_in_J</span> <span class="o">/</span> <span class="mi">1000</span>
+
+<div class="viewcode-block" id="MPIPI_model.swap_coul_func">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.MPIPI_model.swap_coul_func">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">swap_coul_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the Coulomb potential with the FINCHES variant.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coulomb_internal_func_FINCHES</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_unbonded</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">temp</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute total unbonded energy (WF + Coulomb) for all 529 pairs.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Radial distance(s).</span>
+<span class="sd">            pair_charges: Charge pairs, shape (529, 2).</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Total unbonded energies, shape (529,) or (529, len(r)).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">wf_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_wang_frenkel</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rc_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">mu_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">)</span>
+        <span class="n">coul_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">DEBYE_RC</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">wf_vals</span> <span class="o">+</span> <span class="n">coul_vals</span></div>
+
+
+<div class="viewcode-block" id="HPS_model">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">HPS_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;HPS (hydrophobicity scale) coarse-grained force field.</span>
+
+<span class="sd">    Combines Ashbaugh-Hatch short-range potentials with Debye-Huckel</span>
+<span class="sd">    electrostatics. Supports Dignon, Tesei, Urry, and FB parameterizations.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="HPS_model.__init__">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the HPS model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            version: &#39;Dignon&#39;, &#39;Tesei&#39;, &#39;Urry&#39;, or &#39;FB&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="n">version</span>
+        <span class="k">if</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;HPS_Dignon&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;HPS_dignon_check.txt&#39;</span>
+        <span class="k">elif</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;HPS_Tesei&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;HPS_tesei.txt&#39;</span>
+        <span class="k">elif</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Urry&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;HPS_Urry&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;HPS_urry.txt&#39;</span>
+        <span class="k">elif</span> <span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;FB&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;HPS_FB&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;HPS_FB.txt&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid version: </span><span class="si">{</span><span class="n">version</span><span class="si">}</span><span class="s2">, choose from Dignon, Tesei, Urry, FB&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_flattened</span> <span class="o">=</span> <span class="n">read_HPS</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fpath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_ashbaugh_hatch</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ashbaugh_hatch_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coulomb_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="HPS_model.get_debye_kappa">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.get_debye_kappa">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_debye_kappa</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">epsilon_r</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute and store the Debye screening parameter kappa.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            epsilon_r: Relative permittivity.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">salt_conc</span> <span class="o">/=</span> <span class="mi">1000</span>
+        <span class="n">lambda_D</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">3.953940922571158e-6</span><span class="o">*</span><span class="n">temp</span><span class="o">*</span><span class="n">epsilon_r</span><span class="o">/</span><span class="n">salt_conc</span><span class="p">)</span><span class="o">*</span><span class="mi">10</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">=</span> <span class="mi">1</span><span class="o">/</span><span class="n">lambda_D</span></div>
+
+
+<div class="viewcode-block" id="HPS_model.get_relative_perm">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.get_relative_perm">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_relative_perm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute and store the temperature/salt-dependent relative permittivity.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fac1</span> <span class="o">=</span> <span class="mf">249.4</span> <span class="o">-</span> <span class="mf">0.788</span> <span class="o">*</span> <span class="n">temp</span> <span class="o">+</span> <span class="mf">0.00072</span> <span class="o">*</span> <span class="n">temp</span><span class="o">**</span><span class="mi">2</span>
+        <span class="n">fac2</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="mf">0.2551</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span> <span class="o">+</span> <span class="mf">0.05151</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mf">0.006889</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span><span class="o">**</span><span class="mi">3</span>
+        <span class="n">epsilon_r</span> <span class="o">=</span> <span class="n">fac1</span> <span class="o">*</span> <span class="n">fac2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">epsilon_r</span> <span class="o">=</span> <span class="n">epsilon_r</span></div>
+
+
+<div class="viewcode-block" id="HPS_model.construct_eps_matrix">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.construct_eps_matrix">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_eps_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct the 23x23 effective epsilon matrix from lambda values.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Epsilon matrix of shape (23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">Delta</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span>
+            <span class="n">lambda_file</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;lambda_dignon.txt&#39;</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;FB&#39;</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">Delta</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span>
+            <span class="n">lambda_file</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;lambda_FB.txt&#39;</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Urry&#39;</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">Delta</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">0.08</span>
+            <span class="n">lambda_file</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;lambda_urry.txt&#39;</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">Delta</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span>
+
+
+        <span class="c1"># eps_matrix = onp.zeros((NUM_RESIDUES, NUM_RESIDUES))</span>
+
+        <span class="c1"># q, lambd = onp.loadtxt(lambda_file, dtype = str).T</span>
+
+        <span class="c1"># val = onp.array([float(l) for l in lambd])</span>
+        <span class="c1"># for i in range(20):</span>
+        <span class="c1">#     for j in range(20):</span>
+        <span class="c1">#         r1 = RES_ALPHA.index(res_3_to_1[ q[i] ])</span>
+        <span class="c1">#         r2 = RES_ALPHA.index(res_3_to_1[ q[j] ])</span>
+        <span class="c1">#         eps_matrix[r1, r2] = - ( 0.5 * (val[i] + val[j]) * mu - Delta)</span>
+        
+        <span class="n">eps_matrix</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda_table</span> <span class="o">*</span> <span class="n">mu</span> <span class="o">-</span> <span class="n">Delta</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">eps_matrix</span></div>
+
+
+<div class="viewcode-block" id="HPS_model.calculate_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.calculate_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="mi">7</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-residue-type charges for the HPS model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pH: Solution pH (used only in &#39;pH&#39; mode).</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39;.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Charge array of shape (23,), ordered by RES_ALPHA.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span> <span class="ow">and</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;FB&#39;</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Urry&#39;</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">):</span>
+            <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span> <span class="ow">and</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">):</span>
+            <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;pH&#39;</span><span class="p">:</span>
+            <span class="n">pKa_values</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">9.69</span><span class="p">,</span>
+            <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="mf">2.34</span><span class="p">,</span>
+            <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="mf">3.86</span><span class="p">,</span>
+            <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="mf">4.25</span><span class="p">,</span>
+            <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mf">8.33</span><span class="p">,</span>
+            <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="mf">10.07</span><span class="p">,</span>
+            <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">6.00</span><span class="p">,</span>
+            <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">10.54</span><span class="p">,</span>
+            <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">12.48</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="n">charges</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;N-terminus&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C-terminus&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;E&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;H&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;K&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;R&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid pH mode: </span><span class="si">{</span><span class="n">pH_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="HPS_model.create_pair_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.HPS_model.create_pair_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_pair_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">charges</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build all 529 charge pairs from per-residue charges.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            charges: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (529, 2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pair_charges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+                <span class="n">pair_charges</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">charges</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">charges</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pair_charges</span><span class="p">)</span></div>
+
+    
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ashbaugh_hatch_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate the Ashbaugh-Hatch potential at distance r.</span>
+
+<span class="sd">        Combines a repulsive WCA core with a lambda-scaled attractive tail.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            eps: Well depth.</span>
+<span class="sd">            sigma: Length scale.</span>
+<span class="sd">            lambda_: Hydrophobicity parameter (0 = repulsive, 1 = attractive).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Potential energy at r.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">potential_close</span> <span class="o">=</span> <span class="n">eps</span><span class="o">*</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="p">((</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span><span class="o">-</span><span class="p">(</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span><span class="o">+</span><span class="mi">1</span><span class="o">-</span><span class="n">lambda_</span><span class="p">)</span>
+        <span class="n">potential_far</span> <span class="o">=</span> <span class="n">lambda_</span><span class="o">*</span><span class="n">eps</span><span class="o">*</span><span class="mi">4</span><span class="o">*</span><span class="p">((</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span><span class="o">-</span><span class="p">(</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="o">**</span><span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="mi">6</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">potential_close</span><span class="p">,</span> <span class="n">potential_far</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">coulomb_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate screened Coulomb potential for HPS model.</span>
+
+<span class="sd">        Uses precomputed epsilon_r and debye_kappa from get_relative_perm</span>
+<span class="sd">        and get_debye_kappa.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Electrostatic cutoff distance.</span>
+<span class="sd">            salt_conc: Salt concentration in mM (unused; kappa precomputed).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Electrostatic energy at r, zero beyond r_c.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">C</span> <span class="o">=</span> <span class="mf">5.513725184e-22</span> <span class="c1"># (1/(4*pi*eps0)  in units of kcal* (Armstrong)/(electron^^2)</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="p">(</span><span class="n">C</span> <span class="o">*</span> <span class="n">qi</span> <span class="o">*</span> <span class="n">qj</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">epsilon_r</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">*=</span> <span class="mf">6.022e23</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_unbonded</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">temp</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute total unbonded energy (Ashbaugh-Hatch + Coulomb) for all 529 pairs.</span>
+
+<span class="sd">        Also updates internal epsilon_r and debye_kappa for the given conditions.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Radial distance(s).</span>
+<span class="sd">            pair_charges: Charge pairs, shape (529, 2).</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Total unbonded energies, shape (529,) or (529, len(r)).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">get_relative_perm</span><span class="p">(</span><span class="n">temp</span> <span class="o">=</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span> <span class="o">=</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">get_debye_kappa</span><span class="p">(</span><span class="n">temp</span> <span class="o">=</span> <span class="n">temp</span><span class="p">,</span> <span class="n">epsilon_r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">epsilon_r</span><span class="p">,</span> <span class="n">salt_conc</span> <span class="o">=</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="n">ah_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_ashbaugh_hatch</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_flattened</span><span class="p">)</span>
+        <span class="n">coul_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">DEBYE_RC</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ah_vals</span> <span class="o">+</span> <span class="n">coul_vals</span></div>
+
+
+<div class="viewcode-block" id="Calvados_model">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Calvados_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;CALVADOS coarse-grained force field for IDP interactions.</span>
+
+<span class="sd">    Combines HPS-style Lennard-Jones short-range potentials with</span>
+<span class="sd">    Yukawa electrostatics. Supports versions 1 and 2.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Calvados_model.__init__">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;2&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the CALVADOS model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            version: &#39;1&#39; or &#39;2&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ff_string</span> <span class="o">=</span> <span class="s1">&#39;calvados_&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">version</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;.txt&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="n">ff_string</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambdas</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambdas_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span> <span class="o">=</span> <span class="n">read_calvados</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fpath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debye_rc</span> <span class="o">=</span> <span class="mf">40.0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_hps_lj</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hps_lj_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_calvados_coul</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">calvados_coul_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">=</span> <span class="s1">&#39;Calvados&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">version</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Calvados_model.construct_eps_matrix">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model.construct_eps_matrix">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_eps_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct the 23x23 effective epsilon matrix from lambda values.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Epsilon matrix of shape (23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">mu</span><span class="p">,</span> <span class="n">Delta</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span>
+
+        <span class="n">sums</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">expand_dims</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lambdas</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="n">jnp</span><span class="o">.</span><span class="n">expand_dims</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lambdas</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">eps_matrix</span> <span class="o">=</span> <span class="n">Delta</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">mu</span> <span class="o">*</span> <span class="n">sums</span>
+        <span class="c1"># eps_matrix = -(0.5 * jnp.add.outer(self.lambdas, self.lambdas) * mu - Delta)</span>
+        <span class="k">return</span> <span class="n">eps_matrix</span></div>
+
+
+<div class="viewcode-block" id="Calvados_model.calculate_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model.calculate_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="mi">7</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-residue-type charges for the CALVADOS model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pH: Solution pH (used only in &#39;pH&#39; mode).</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39;.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Charge array of shape (23,), ordered by RES_ALPHA.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+            <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+            <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;pH&#39;</span><span class="p">:</span>
+            <span class="n">pKa_values</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">9.69</span><span class="p">,</span>
+            <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="mf">2.34</span><span class="p">,</span>
+            <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="mf">3.86</span><span class="p">,</span>
+            <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="mf">4.25</span><span class="p">,</span>
+            <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mf">8.33</span><span class="p">,</span>
+            <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="mf">10.07</span><span class="p">,</span>
+            <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">6.00</span><span class="p">,</span>
+            <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">10.54</span><span class="p">,</span>
+            <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">12.48</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="n">charges</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;N-terminus&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C-terminus&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;E&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;H&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;K&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;R&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid pH mode: </span><span class="si">{</span><span class="n">pH_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Calvados_model.create_pair_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model.create_pair_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_pair_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">charges</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build all 529 charge pairs from per-residue charges.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            charges: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (529, 2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pair_charges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+                <span class="n">pair_charges</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">charges</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">charges</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pair_charges</span><span class="p">)</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">hps_lj_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">lam</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate the CALVADOS HPS Lennard-Jones potential.</span>
+
+<span class="sd">        Shifted Ashbaugh-Hatch form with eps = 0.2 kJ/mol and cutoff at 20 Angstroms.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            sigma: Length scale.</span>
+<span class="sd">            lam: Hydrophobicity parameter.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Potential energy at r.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">hps_lj_eps</span> <span class="o">=</span> <span class="mf">0.2</span>
+
+
+        <span class="n">lj_r_cuts</span> <span class="o">=</span> <span class="mf">20.0</span>
+        <span class="n">shift</span> <span class="o">=</span> <span class="p">(</span><span class="n">sigma</span> <span class="o">/</span> <span class="n">lj_r_cuts</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span> <span class="o">-</span> <span class="p">(</span><span class="n">sigma</span> <span class="o">/</span> <span class="n">lj_r_cuts</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span>
+        <span class="n">r_switch</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="mi">6</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigma</span>
+        <span class="n">lj_core</span> <span class="o">=</span> <span class="mi">4</span> <span class="o">*</span> <span class="p">((</span><span class="n">sigma</span> <span class="o">/</span> <span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span> <span class="o">-</span> <span class="p">(</span><span class="n">sigma</span> <span class="o">/</span> <span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span>
+        <span class="n">cond1</span> <span class="o">=</span> <span class="p">(</span><span class="n">r</span> <span class="o">&lt;=</span> <span class="n">r_switch</span><span class="p">)</span> 
+        <span class="n">cond2</span> <span class="o">=</span> <span class="p">(</span><span class="n">r_switch</span> <span class="o">&lt;</span> <span class="n">r</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">lj_r_cuts</span><span class="p">)</span>
+        <span class="n">ah_long</span> <span class="o">=</span> <span class="n">lam</span> <span class="o">*</span> <span class="n">hps_lj_eps</span><span class="o">*</span><span class="p">(</span><span class="n">lj_core</span> <span class="o">-</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">shift</span><span class="p">)</span>
+        <span class="n">ah_short</span> <span class="o">=</span> <span class="p">(</span><span class="n">lj_core</span><span class="o">*</span> <span class="n">hps_lj_eps</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="n">lam</span> <span class="o">*</span> <span class="n">shift</span> <span class="o">*</span> <span class="n">hps_lj_eps</span><span class="p">)</span> <span class="o">+</span> <span class="p">((</span><span class="mi">1</span> <span class="o">-</span> <span class="n">lam</span><span class="p">)</span> <span class="o">*</span> <span class="n">hps_lj_eps</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">cond1</span><span class="p">,</span> <span class="n">ah_short</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">cond2</span><span class="p">,</span> <span class="n">ah_long</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">val</span>
+
+<div class="viewcode-block" id="Calvados_model.swap_coul_func">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.Calvados_model.swap_coul_func">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">swap_coul_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the Coulomb potential with the FINCHES-compatible variant.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_calvados_coul</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">calvados_coul_internal_func_FINCHES</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calvados_coul_internal_func_FINCHES</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;FINCHES-variant Yukawa electrostatics for CALVADOS.</span>
+
+<span class="sd">        Uses temperature-dependent Bjerrum length and returns energy</span>
+<span class="sd">        in kcal/mol (divided by 4.184 from kJ).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance in Angstroms.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Cutoff distance (unused; internal cutoff = 4 nm).</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Yukawa electrostatic energy at r in kcal/mol.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">RT</span> <span class="o">=</span> <span class="mf">8.3145</span><span class="o">*</span><span class="n">temp</span><span class="o">*</span><span class="mf">1e-3</span>
+        <span class="n">fepsw</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">T</span> <span class="p">:</span> <span class="mi">5321</span><span class="o">/</span><span class="n">T</span><span class="o">+</span><span class="mf">233.76</span><span class="o">-</span><span class="mf">0.9297</span><span class="o">*</span><span class="n">T</span><span class="o">+</span><span class="mf">0.1417</span><span class="o">*</span><span class="mf">1e-2</span><span class="o">*</span><span class="n">T</span><span class="o">*</span><span class="n">T</span><span class="o">-</span><span class="mf">0.8292</span><span class="o">*</span><span class="mf">1e-6</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span>
+        <span class="n">epsw</span> <span class="o">=</span> <span class="n">fepsw</span><span class="p">(</span><span class="n">temp</span><span class="p">)</span>
+
+        <span class="n">lB</span> <span class="o">=</span> <span class="mf">1.6021766</span><span class="o">**</span><span class="mi">2</span><span class="o">/</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="n">jnp</span><span class="o">.</span><span class="n">pi</span><span class="o">*</span><span class="mf">8.854188</span><span class="o">*</span><span class="n">epsw</span><span class="p">)</span><span class="o">*</span><span class="mf">6.022</span><span class="o">*</span><span class="mi">1000</span><span class="o">/</span><span class="n">RT</span>
+
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">qq</span> <span class="o">=</span> <span class="n">qi</span><span class="o">*</span><span class="n">qj</span>
+
+        <span class="n">ionic_strength</span> <span class="o">=</span> <span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span>
+        <span class="n">yukawa_kappa</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">8</span><span class="o">*</span><span class="n">jnp</span><span class="o">.</span><span class="n">pi</span><span class="o">*</span><span class="n">lB</span><span class="o">*</span><span class="n">ionic_strength</span><span class="o">*</span><span class="mf">6.022</span><span class="o">/</span><span class="mi">10</span><span class="p">)</span>
+        <span class="n">yukawa_eps</span> <span class="o">=</span> <span class="n">qq</span><span class="o">*</span><span class="n">lB</span><span class="o">*</span><span class="n">RT</span>
+        <span class="n">yukawa_r_cut</span> <span class="o">=</span> <span class="mf">4.0</span>
+        <span class="n">r</span> <span class="o">/=</span> <span class="mf">10.0</span>
+
+        <span class="n">kappa</span> <span class="o">=</span> <span class="n">yukawa_kappa</span>
+        <span class="n">shift</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">yukawa_kappa</span><span class="o">*</span><span class="n">yukawa_r_cut</span><span class="p">)</span><span class="o">/</span><span class="n">yukawa_r_cut</span>
+        <span class="n">yu</span> <span class="o">=</span> <span class="n">yukawa_eps</span><span class="o">*</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">kappa</span><span class="o">*</span><span class="n">r</span><span class="p">)</span><span class="o">/</span><span class="n">r</span><span class="o">-</span><span class="n">shift</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">yu</span><span class="o">/</span><span class="mf">4.184</span>
+        
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calvados_coul_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Standard Yukawa electrostatics for CALVADOS.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Electrostatic cutoff distance.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Electrostatic energy at r, zero beyond r_c.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kT</span> <span class="o">=</span> <span class="mf">0.0019872041</span><span class="o">*</span><span class="n">temp</span>
+        <span class="c1"># Calculate the prefactor for the Yukawa potential</span>
+        <span class="n">epsw</span> <span class="o">=</span> <span class="mi">5321</span><span class="o">/</span><span class="n">temp</span><span class="o">+</span><span class="mf">233.76</span><span class="o">-</span><span class="mf">0.9297</span><span class="o">*</span><span class="n">temp</span><span class="o">+</span><span class="mf">0.1417</span><span class="o">*</span><span class="mf">1e-2</span><span class="o">*</span><span class="n">temp</span><span class="o">*</span><span class="n">temp</span><span class="o">-</span><span class="mf">0.8292</span><span class="o">*</span><span class="mf">1e-6</span><span class="o">*</span><span class="n">temp</span><span class="o">**</span><span class="mi">3</span>
+        <span class="n">C</span> <span class="o">=</span> <span class="mf">5.513725184e-22</span> <span class="c1"># (1/(4*pi*eps0)  in units of kcal* (Armstrong)/(electron^^2)</span>
+        <span class="n">lB</span> <span class="o">=</span>  <span class="n">C</span><span class="o">*</span><span class="mf">6.022e23</span><span class="o">/</span><span class="p">(</span><span class="n">epsw</span><span class="o">*</span><span class="n">kT</span><span class="p">)</span>
+        <span class="n">eps_yu</span> <span class="o">=</span> <span class="p">(</span><span class="n">lB</span><span class="o">*</span><span class="n">kT</span><span class="p">)</span><span class="o">/</span><span class="mf">6.022e23</span>
+        <span class="n">k_yu</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">8</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">lB</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span> <span class="o">*</span> <span class="mf">6.022e23</span> <span class="o">*</span> <span class="mf">1e-27</span><span class="p">)</span>
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>        
+        
+
+        <span class="n">shift</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">k_yu</span> <span class="o">*</span> <span class="n">r_c</span><span class="p">)</span> <span class="o">/</span> <span class="n">r_c</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">qi</span> <span class="o">*</span> <span class="n">qj</span> <span class="o">*</span> <span class="n">eps_yu</span> <span class="o">*</span> <span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">k_yu</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">/</span> <span class="n">r</span> <span class="o">-</span> <span class="n">shift</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">*=</span> <span class="mf">6.022e23</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_unbonded</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">temp</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute total unbonded energy (HPS LJ + Coulomb) for all 529 pairs.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Radial distance(s).</span>
+<span class="sd">            pair_charges: Charge pairs, shape (529, 2).</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Total unbonded energies, shape (529,) or (529, len(r)).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">hps_lj_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_hps_lj</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambdas_flattened</span><span class="p">)</span>
+        <span class="n">coul_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_calvados_coul</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">debye_rc</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">hps_lj_vals</span> <span class="o">+</span> <span class="n">coul_vals</span></div>
+
+
+<div class="viewcode-block" id="KHD_model">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.KHD_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">KHD_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Kim-Hummer-D coarse-grained force field.</span>
+
+<span class="sd">    Combines Ashbaugh-Hatch short-range potentials (with sign-dependent</span>
+<span class="sd">    lambda) and Debye-Huckel electrostatics.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="KHD_model.__init__">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.KHD_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the KH-D model, loading parameters from file.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fpath</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s1">&#39;ff_params&#39;</span> <span class="o">/</span> <span class="s1">&#39;KH-D.txt&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_flattened</span> <span class="o">=</span> <span class="n">read_KH_D</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fpath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened_positive</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span> <span class="o">&lt;</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coulomb_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_ashbaugh_hatch</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ashbaugh_hatch_internal_func</span><span class="p">,</span> <span class="n">in_axes</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">=</span> <span class="mf">0.131</span></div>
+
+
+
+<div class="viewcode-block" id="KHD_model.construct_eps_matrix">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.KHD_model.construct_eps_matrix">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_eps_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the raw 23x23 epsilon table.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Epsilon matrix of shape (23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_table</span></div>
+
+
+<div class="viewcode-block" id="KHD_model.calculate_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.KHD_model.calculate_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="mi">7</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-residue-type charges for the KH-D model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pH: Solution pH (used only in &#39;pH&#39; mode).</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39;.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Charge array of shape (23,), ordered by RES_ALPHA.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">charges_dict</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+            <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+            <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;normal&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">pH_mode</span> <span class="o">==</span> <span class="s1">&#39;pH&#39;</span><span class="p">:</span>
+            <span class="n">pKa_values</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">9.69</span><span class="p">,</span>
+            <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="mf">2.34</span><span class="p">,</span>
+            <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="mf">3.86</span><span class="p">,</span>
+            <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="mf">4.25</span><span class="p">,</span>
+            <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mf">8.33</span><span class="p">,</span>
+            <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="mf">10.07</span><span class="p">,</span>
+            <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">6.00</span><span class="p">,</span>
+            <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">10.54</span><span class="p">,</span>
+            <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">12.48</span><span class="p">,</span>
+            <span class="p">}</span>
+
+            <span class="n">charges</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;N-terminus&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;N-terminus&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;C-terminus&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C-terminus&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;D&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;E&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;E&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;C&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">pH</span><span class="p">)),</span>
+                <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;H&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;K&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;K&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;R&#39;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="n">pKa_values</span><span class="p">[</span><span class="s1">&#39;R&#39;</span><span class="p">])),</span>
+                <span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span>
+                <span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="mf">0.0</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">charges</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">RES_ALPHA</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid pH mode: </span><span class="si">{</span><span class="n">pH_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="KHD_model.create_pair_charges">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.KHD_model.create_pair_charges">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_pair_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">charges</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build all 529 charge pairs from per-residue charges.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            charges: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (529, 2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pair_charges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">):</span>
+                <span class="n">pair_charges</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">charges</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">charges</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pair_charges</span><span class="p">)</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">coulomb_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">qij</span><span class="p">,</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate screened Coulomb potential for KH-D model.</span>
+
+<span class="sd">        Uses a fixed dielectric of 80 and salt-dependent Debye screening.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            qij: Charge pair [qi, qj].</span>
+<span class="sd">            r_c: Electrostatic cutoff distance.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Electrostatic energy at r, zero beyond r_c.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">qi</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">qj</span> <span class="o">=</span> <span class="n">qij</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">debye_kappa</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">150</span><span class="p">)</span>
+        <span class="n">C</span> <span class="o">=</span> <span class="mf">5.513725184e-22</span> <span class="c1"># (1/(4*pi*eps0)  in units of kcal* (Armstrong)/(electron^^2)</span>
+        <span class="n">fac1</span> <span class="o">=</span>  <span class="mf">249.4</span> <span class="o">-</span> <span class="mf">0.788</span> <span class="o">*</span> <span class="n">temp</span> <span class="o">+</span> <span class="mf">0.00072</span> <span class="o">*</span> <span class="n">temp</span><span class="o">**</span><span class="mi">2</span>
+        <span class="n">fac2</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="mf">0.2551</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span> <span class="o">+</span> <span class="mf">0.05151</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mf">0.006889</span> <span class="o">*</span> <span class="p">(</span><span class="n">salt_conc</span><span class="o">/</span><span class="mi">1000</span><span class="p">)</span><span class="o">**</span><span class="mi">3</span>
+        <span class="n">epsilon</span> <span class="o">=</span> <span class="n">fac1</span> <span class="o">*</span> <span class="n">fac2</span>
+        <span class="n">epsilon</span> <span class="o">=</span> <span class="mf">80.0</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="p">(</span><span class="n">C</span> <span class="o">*</span> <span class="n">qi</span> <span class="o">*</span> <span class="n">qj</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">epsilon</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">k</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span>
+        <span class="n">val</span> <span class="o">*=</span> <span class="mf">6.022e23</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="n">r_c</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ashbaugh_hatch_internal_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Evaluate the Ashbaugh-Hatch potential for KH-D.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Interparticle distance.</span>
+<span class="sd">            eps: Well depth (absolute value).</span>
+<span class="sd">            sigma: Length scale.</span>
+<span class="sd">            lambda_: Sign-dependent hydrophobicity (+1 repulsive, -1 attractive).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Potential energy at r.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">potential_close</span> <span class="o">=</span> <span class="n">eps</span><span class="o">*</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="p">((</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span><span class="o">-</span><span class="p">(</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span><span class="o">+</span><span class="mi">1</span><span class="o">-</span><span class="n">lambda_</span><span class="p">)</span>
+        <span class="n">potential_far</span> <span class="o">=</span> <span class="n">lambda_</span><span class="o">*</span><span class="n">eps</span><span class="o">*</span><span class="mi">4</span><span class="o">*</span><span class="p">((</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">12</span><span class="o">-</span><span class="p">(</span><span class="n">sigma</span><span class="o">/</span><span class="n">r</span><span class="p">)</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">r</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="o">**</span><span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="mi">6</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">potential_close</span><span class="p">,</span> <span class="n">potential_far</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_unbonded</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">temp</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute total unbonded energy (Ashbaugh-Hatch + Coulomb) for all 529 pairs.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Radial distance(s).</span>
+<span class="sd">            pair_charges: Charge pairs, shape (529, 2).</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Total unbonded energies, shape (529,) or (529, len(r)).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ah_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_ashbaugh_hatch</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_flattened_positive</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigma_flattened</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda_flattened</span><span class="p">)</span>
+        <span class="n">coul_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mapped_coulomb</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">DEBYE_RC</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ah_vals</span> <span class="o">+</span> <span class="n">coul_vals</span></div>
+
+
+<div class="viewcode-block" id="seq_to_one_hot">
+<a class="viewcode-back" href="../../api/ff_models.html#models.ff_models.seq_to_one_hot">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">seq_to_one_hot</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert an amino acid sequence string to a one-hot encoded array.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        seq: Amino acid sequence string using RES_ALPHA characters.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        One-hot array of shape (len(seq), 23).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">all_vecs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">seq</span><span class="p">:</span>
+        <span class="n">res_idx</span> <span class="o">=</span> <span class="n">RES_ALPHA</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+        <span class="n">res_vec</span> <span class="o">=</span> <span class="n">onp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">)</span>
+        <span class="n">res_vec</span><span class="p">[</span><span class="n">res_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+        <span class="n">all_vecs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">res_vec</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_vecs</span><span class="p">)</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+    <div class="clearer"></div>
+  </div>
+    <div class="footer">
+      &#169;2026, Neha Tyagi, Jackson Boodry, Vita Chou, Wilton Snead, Krishna Shrinivas.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

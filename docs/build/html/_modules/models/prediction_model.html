@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>models.prediction_model &#8212; theory_idp_design 2026 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=057308f9" />
+    <script src="../../_static/documentation_options.js?v=fc6fd62b"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  <div class="document">
+    
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">theory_idp_design</a></h1>
+
+
+
+<p class="blurb">Physics-informed IDP sequence design via differentiable optimization</p>
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api/designer.html"><code class="docutils literal notranslate"><span class="pre">models.designer</span></code> — Designer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/predictor.html"><code class="docutils literal notranslate"><span class="pre">models.predictor</span></code> — Predictor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/prediction_model.html"><code class="docutils literal notranslate"><span class="pre">models.prediction_model</span></code> — Physics Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/ff_models.html"><code class="docutils literal notranslate"><span class="pre">models.ff_models</span></code> — Force Fields</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/metapredict_jax.html"><code class="docutils literal notranslate"><span class="pre">models.metapredict_jax</span></code> — Disorder Predictor</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for models.prediction_model</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">onp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">itertools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unittest</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">optax</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax</span><span class="w"> </span><span class="kn">import</span> <span class="n">vmap</span><span class="p">,</span> <span class="n">jit</span><span class="p">,</span> <span class="n">value_and_grad</span><span class="p">,</span> <span class="n">lax</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax.lib</span><span class="w"> </span><span class="kn">import</span> <span class="n">xla_bridge</span>
+<span class="c1"># print(xla_bridge.get_backend().platform)</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">models.ff_models</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff_models</span>
+<span class="n">importlib</span><span class="o">.</span><span class="n">reload</span><span class="p">(</span><span class="n">ff_models</span><span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">models.ff_models</span><span class="w"> </span><span class="kn">import</span> <span class="n">MPIPI_model</span><span class="p">,</span> <span class="n">HPS_model</span><span class="p">,</span> <span class="n">Calvados_model</span><span class="p">,</span> <span class="n">KHD_model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">models.ff_models</span><span class="w"> </span><span class="kn">import</span> <span class="n">seq_to_one_hot</span>
+
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="p">))</span>
+<span class="n">kb</span> <span class="o">=</span> <span class="mf">0.0019872041</span>
+<span class="n">RES_ALPHA</span> <span class="o">=</span> <span class="s2">&quot;MGKTRADEYVLQWFSHNPCIXZB&quot;</span>
+<span class="n">NUM_RESIDUES</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">RES_ALPHA</span><span class="p">)</span>
+<span class="k">assert</span><span class="p">(</span><span class="n">NUM_RESIDUES</span> <span class="o">==</span> <span class="mi">23</span><span class="p">)</span>
+
+
+
+
+<div class="viewcode-block" id="Dimer_model">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.Dimer_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Dimer_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Second-virial-coefficient model for IDP interaction parameters.</span>
+
+<span class="sd">    Computes pairwise dimer-dimer interaction energies by numerically</span>
+<span class="sd">    integrating the Mayer f-function over radial distance, then contracts</span>
+<span class="sd">    the resulting 529x529 interaction tensor with dimer frequency vectors</span>
+<span class="sd">    derived from probabilistic sequences.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Dimer_model.__init__">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.Dimer_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ff_type</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the dimer model with a specific force field.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ff_type: Force field identifier (e.g. &#39;mpipi&#39;, &#39;calvados2&#39;).</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39; for charge calculation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ff_type</span> <span class="o">=</span> <span class="n">ff_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span> <span class="o">=</span> <span class="n">pH_mode</span>
+        <span class="k">if</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi_gg&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;GG&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_dignon&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_tesei&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_urry&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Urry&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_fb&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;FB&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados1&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;1&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados2&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;2&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;kh-d&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">KHD_model</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid ff type: </span><span class="si">{</span><span class="n">ff_type</span><span class="si">}</span><span class="s2">, choose from mpipi, mpipi_gg, hps_dignon, hps_tesei, hps_urry, hps_fb, calvados1, calvados2, kh-d&quot;</span><span class="p">)</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_aa_interactions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">dr</span><span class="p">,</span> <span class="n">kT</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the 23^2 x 23^2 dimer-dimer interaction energy tensor.</span>
+
+<span class="sd">        For each quadruplet of residue types (i,j,k,l), numerically integrates</span>
+<span class="sd">        r^2 * (1 - exp(-alpha * sum_of_unbonded / kT)) over the radial grid</span>
+<span class="sd">        to obtain the Mayer f-function integral.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            r: Radial distance grid, shape (num_steps,).</span>
+<span class="sd">            dr: Grid spacing.</span>
+<span class="sd">            kT: Thermal energy (kb * temp).</span>
+<span class="sd">            temp: Temperature in Kelvin.</span>
+<span class="sd">            salt_conc: Salt concentration in mM.</span>
+<span class="sd">            pair_charges: Charge pairs, shape (529, 2).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Interaction tensor of shape (23, 23, 23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="mf">0.75</span>
+        <span class="n">num_steps</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">unbonded_values</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">calculate_unbonded</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt_conc</span><span class="p">,</span> <span class="n">temp</span><span class="p">))(</span><span class="n">r</span><span class="p">)</span>
+        <span class="n">unbonded_values</span> <span class="o">=</span> <span class="n">unbonded_values</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">num_steps</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">)</span> <span class="c1"># to include temp and  salt_conc</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">compute_interaction_sum</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">l</span><span class="p">):</span>
+            <span class="n">interaction_sum</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">),</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">l</span><span class="p">),</span> <span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">),</span> <span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="n">l</span><span class="p">)]:</span>
+                <span class="n">interaction_sum</span> <span class="o">+=</span> <span class="n">unbonded_values</span><span class="p">[:,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">]</span>
+            <span class="n">pairs</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">alpha</span> <span class="o">*</span> <span class="p">(</span><span class="n">interaction_sum</span> <span class="o">/</span> <span class="n">kT</span><span class="p">))</span>
+            <span class="n">y_vals</span> <span class="o">=</span> <span class="p">(</span><span class="n">r</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">pairs</span>
+            <span class="n">integrals</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">y_vals</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">y_vals</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span> <span class="o">*</span> <span class="n">dr</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">integrals</span>
+        <span class="n">compute_interactions_vmap</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span>
+            <span class="n">vmap</span><span class="p">(</span>
+                <span class="n">vmap</span><span class="p">(</span>
+                    <span class="n">vmap</span><span class="p">(</span><span class="n">compute_interaction_sum</span><span class="p">,</span> <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">)),</span>
+                    <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                <span class="p">),</span>
+                <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="p">),</span>
+            <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">)</span>
+        <span class="n">interactions</span> <span class="o">=</span> <span class="n">compute_interactions_vmap</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">interactions</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pseq_to_dseq</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a probabilistic sequence to dimer probability matrices.</span>
+
+<span class="sd">        Computes the outer product of adjacent residue distributions to</span>
+<span class="sd">        obtain the probability of each dimer type at each position.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dimer probabilities, shape (L-1, 23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">num_dimers</span> <span class="o">=</span> <span class="n">pseq</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">dimer_prob</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">num_dimers</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">compute_dimer</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">outer</span><span class="p">(</span><span class="n">pseq</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">pseq</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+        <span class="n">dimer_prob</span> <span class="o">=</span> <span class="n">vmap</span><span class="p">(</span><span class="n">compute_dimer</span><span class="p">)(</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">num_dimers</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">dimer_prob</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dimer_virial_coefficients_internal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the second virial coefficient from dimer frequency vectors.</span>
+
+<span class="sd">        Contracts the dimer frequency distributions of two sequences with</span>
+<span class="sd">        the precomputed 529x529 interaction tensor to yield a scalar virial</span>
+<span class="sd">        coefficient.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dseq1: Dimer probabilities for sequence 1, shape (N1-1, 23, 23).</span>
+<span class="sd">            dseq2: Dimer probabilities for sequence 2, shape (N2-1, 23, 23).</span>
+<span class="sd">            aa_interactions: Interaction tensor, shape (529, 529).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Scalar virial coefficient B2.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">freq_dseq1</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dseq1</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="c1"># (23, 23)</span>
+        <span class="n">freq_dseq2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dseq2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="c1"># (23, 23)</span>
+        <span class="n">freq_dseq1_flat</span> <span class="o">=</span> <span class="n">freq_dseq1</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span> <span class="c1"># (529)</span>
+        <span class="n">freq_dseq2_flat</span> <span class="o">=</span> <span class="n">freq_dseq2</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span> <span class="c1"># (529)</span>
+        <span class="n">intm_result</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">freq_dseq1_flat</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">)</span> <span class="c1"># dot product of (529) and (529, 529) -&gt; (529)</span>
+        <span class="n">virialB</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mf">1e3</span><span class="p">)</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">intm_result</span><span class="p">,</span> <span class="n">freq_dseq2_flat</span><span class="p">)</span> <span class="c1"># dot product of (529) and (529) -&gt; (1)</span>
+        <span class="k">return</span> <span class="n">virialB</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pairwise_interaction_matrix_internal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        dseq1: (N1-1, 23, 23) dimer probabilities for seq1</span>
+<span class="sd">        dseq2: (N2-1, 23, 23) dimer probabilities for seq2</span>
+<span class="sd">        aa_interactions: (529, 529) dimer–dimer interaction energies</span>
+<span class="sd">        Returns: (N1, N2) residue–residue interaction matrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">n1</span> <span class="o">=</span> <span class="n">dseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>          <span class="c1"># number of dimers in seq1</span>
+        <span class="n">n2</span> <span class="o">=</span> <span class="n">dseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>          <span class="c1"># number of dimers in seq2</span>
+
+        <span class="n">d1</span> <span class="o">=</span> <span class="n">dseq1</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n1</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># (n1, 529)</span>
+        <span class="n">d2</span> <span class="o">=</span> <span class="n">dseq2</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n2</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># (n2, 529)</span>
+
+        <span class="c1"># dimer–dimer energy block</span>
+        <span class="n">dim_mat</span> <span class="o">=</span> <span class="n">d1</span> <span class="o">@</span> <span class="n">aa_interactions</span> <span class="o">@</span> <span class="n">d2</span><span class="o">.</span><span class="n">T</span>    <span class="c1"># (1, n1, n2)</span>
+
+        <span class="n">dim_mat</span> <span class="o">=</span> <span class="n">dim_mat</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="c1"># (n1, n2)</span>
+
+        <span class="c1"># distribute each dimer–dimer energy equally to its four endpoint residue pairs</span>
+        <span class="n">contrib</span> <span class="o">=</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="n">dim_mat</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">n1</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n2</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">res_mat</span><span class="o">.</span><span class="n">at</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">contrib</span><span class="p">)</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">res_mat</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="mi">1</span><span class="p">:,</span>  <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">contrib</span><span class="p">)</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">res_mat</span><span class="o">.</span><span class="n">at</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">contrib</span><span class="p">)</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">res_mat</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="mi">1</span><span class="p">:,</span>  <span class="mi">1</span><span class="p">:</span> <span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">contrib</span><span class="p">)</span>
+
+        <span class="c1"># match virial scaling</span>
+        <span class="n">res_mat</span> <span class="o">=</span> <span class="n">res_mat</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mf">1e3</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">res_mat</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_aa_interactions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">all_conditions</span><span class="p">,</span> <span class="n">r0</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span> <span class="n">r1</span> <span class="o">=</span> <span class="mf">100.0</span><span class="p">,</span> <span class="n">num_steps</span> <span class="o">=</span> <span class="mi">100</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Precompute the 529x529 interaction tensor for each thermodynamic condition.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            all_conditions: List of (temp, salt, pH) tuples.</span>
+<span class="sd">            r0: Radial integration lower bound (Angstroms).</span>
+<span class="sd">            r1: Radial integration upper bound (Angstroms).</span>
+<span class="sd">            num_steps: Number of radial grid points.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (N_conditions, 529, 529).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">r0</span><span class="p">,</span> <span class="n">r1</span><span class="p">,</span> <span class="n">num_steps</span><span class="p">)</span>
+        <span class="n">dr</span> <span class="o">=</span> <span class="p">(</span><span class="n">r1</span> <span class="o">-</span> <span class="n">r0</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">num_steps</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">conditions</span> <span class="ow">in</span> <span class="n">all_conditions</span><span class="p">:</span>
+            <span class="n">temp</span><span class="p">,</span> <span class="n">salt</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="n">conditions</span>
+            <span class="n">charges</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">calculate_charges</span><span class="p">(</span><span class="n">pH</span> <span class="o">=</span> <span class="n">pH</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span><span class="p">)</span>
+            <span class="n">pair_charges</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">create_pair_charges</span><span class="p">(</span><span class="n">charges</span><span class="p">)</span>
+            <span class="n">aa_interactions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calculate_aa_interactions</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">dr</span><span class="p">,</span> <span class="n">kb</span> <span class="o">*</span> <span class="n">temp</span><span class="p">,</span> <span class="n">temp</span><span class="p">,</span> <span class="n">salt</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">)</span>
+            <span class="n">aa_interactions</span> <span class="o">=</span> <span class="n">aa_interactions</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">all_virials</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">aa_interactions</span><span class="p">)</span>
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_virials</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">all_virials</span>
+
+<div class="viewcode-block" id="Dimer_model.return_interaction_matrix">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.Dimer_model.return_interaction_matrix">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq1</span><span class="p">,</span> <span class="n">seq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the residue-residue interaction matrix from sequence strings.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            seq1: First amino acid sequence string.</span>
+<span class="sd">            seq2: Second amino acid sequence string.</span>
+<span class="sd">            aa_interactions: Precomputed interaction tensor(s).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Interaction matrix of shape (len(seq1), len(seq2)).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pseq1</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq1</span><span class="p">)</span>
+        <span class="n">pseq2</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq2</span><span class="p">)</span>
+        <span class="n">dseq1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq1</span><span class="p">)</span>
+        <span class="n">dseq2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq2</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">pairwise_interaction_matrix_internal</span><span class="p">(</span><span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Dimer_model.return_interaction_parameters">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.Dimer_model.return_interaction_parameters">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq1</span><span class="p">,</span> <span class="n">seq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute virial coefficients from sequence strings.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            seq1: First amino acid sequence string.</span>
+<span class="sd">            seq2: Second amino acid sequence string.</span>
+<span class="sd">            aa_interactions: Precomputed interaction tensors, shape (N_conditions, 529, 529).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of virial coefficients, shape (N_conditions,).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pseq1</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq1</span><span class="p">)</span>
+        <span class="n">pseq2</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq2</span><span class="p">)</span>
+        <span class="n">dseq1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq1</span><span class="p">)</span>
+        <span class="n">dseq2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq2</span><span class="p">)</span>
+
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">aa_interaction</span> <span class="ow">in</span> <span class="n">aa_interactions</span><span class="p">:</span>
+            <span class="n">virialB</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimer_virial_coefficients_internal</span><span class="p">(</span><span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interaction</span><span class="p">)</span>
+            <span class="n">all_virials</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">virialB</span><span class="p">)</span>
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_virials</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">all_virials</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters_continuous</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute virial coefficients from probabilistic sequences (differentiable).</span>
+
+<span class="sd">        JIT-compiled path used during gradient-based optimization.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            aa_interactions: Precomputed interaction tensors, shape (N_conditions, 529, 529).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of virial coefficients, shape (N_conditions,).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dseq1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq1</span><span class="p">)</span>
+        <span class="n">dseq2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq2</span><span class="p">)</span>
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">aa_interaction</span> <span class="ow">in</span> <span class="n">aa_interactions</span><span class="p">:</span>
+            <span class="n">virialB</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimer_virial_coefficients_internal</span><span class="p">(</span><span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interaction</span><span class="p">)</span>
+            <span class="n">all_virials</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">virialB</span><span class="p">)</span>
+        <span class="n">all_virials</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_virials</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">all_virials</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_matrix_continuous</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the residue-residue interaction matrix from probabilistic sequences.</span>
+
+<span class="sd">        JIT-compiled, differentiable path for optimization.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            aa_interactions: Precomputed interaction tensors.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Interaction matrix of shape (L1, L2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dseq1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq1</span><span class="p">)</span>
+        <span class="n">dseq2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pseq_to_dseq</span><span class="p">(</span><span class="n">pseq2</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">pairwise_interaction_matrix_internal</span><span class="p">(</span><span class="n">dseq1</span><span class="p">,</span> <span class="n">dseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">)</span></div>
+
+
+    
+<div class="viewcode-block" id="RPA_model">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.RPA_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RPA_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Random Phase Approximation model for effective chi parameters.</span>
+
+<span class="sd">    Combines mean-field (MFT), fluctuation (RPA), and short-range</span>
+<span class="sd">    hydrophobic (chi_h) contributions to compute an effective Flory</span>
+<span class="sd">    chi parameter for IDP pairs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="RPA_model.__init__">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.RPA_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ff_type</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the RPA model with a force field and physical parameters.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ff_type: Force field identifier.</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39; for charge calculation.</span>
+<span class="sd">            params: Dict with RPA parameters: rho0, lB, kappa, a, Vh0.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ff_type</span> <span class="o">=</span> <span class="n">ff_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span> <span class="o">=</span> <span class="n">pH_mode</span>
+        <span class="k">if</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi_gg&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;GG&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_dignon&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_tesei&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_urry&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Urry&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_fb&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;FB&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados1&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;1&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados2&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;2&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;kh-d&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">KHD_model</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid ff type: </span><span class="si">{</span><span class="n">ff_type</span><span class="si">}</span><span class="s2">, choose from mpipi, mpipi_gg, hps_dignon, hps_tesei, hps_urry, hps_fb, calvados1, calvados2, kh-d&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps_matrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">construct_eps_matrix</span><span class="p">()</span>
+        <span class="c1"># self.charges = self.model.calculate_charges(pH_mode = self.pH_mode)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="n">params</span></div>
+
+
+<div class="viewcode-block" id="RPA_model.return_interaction_parameters">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.RPA_model.return_interaction_parameters">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq1</span><span class="p">,</span> <span class="n">seq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute effective chi from sequence strings.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            seq1: First amino acid sequence string.</span>
+<span class="sd">            seq2: Second amino acid sequence string.</span>
+<span class="sd">            aa_interactions: Precomputed [res_diffs, all_charges] from set_aa_interactions.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of effective chi values, one per pH condition.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pseq1</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq1</span><span class="p">)</span>
+        <span class="n">pseq2</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">N1</span> <span class="o">=</span> <span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">N2</span> <span class="o">=</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="n">rho0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;rho0&#39;</span><span class="p">]</span>
+        <span class="n">lB</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;lB&#39;</span><span class="p">]</span>
+        <span class="n">kappa</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;kappa&#39;</span><span class="p">]</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;a&#39;</span><span class="p">]</span>
+        <span class="n">Vh0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;Vh0&#39;</span><span class="p">]</span>
+
+        <span class="n">chi_eff</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calc_chi_eff</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">Vh0</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">chi_eff</span></div>
+
+
+<div class="viewcode-block" id="RPA_model.set_aa_interactions">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.RPA_model.set_aa_interactions">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_aa_interactions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">N1</span><span class="p">,</span> <span class="n">N2</span><span class="p">,</span> <span class="n">pHs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Precompute residue separation matrices and per-pH charge vectors.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            N1: Length of sequence 1.</span>
+<span class="sd">            N2: Length of sequence 2.</span>
+<span class="sd">            pHs: List of pH values.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of [res_diffs_array, all_charges_array].</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">indices_1</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N1</span><span class="p">)</span>
+        <span class="n">indices_2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N2</span><span class="p">)</span>
+        <span class="n">res_diffs_1</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">indices_1</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">indices_1</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="n">res_diffs_2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">indices_2</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">indices_2</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="n">res_diffs</span> <span class="o">=</span> <span class="p">[</span><span class="n">res_diffs_1</span><span class="p">,</span> <span class="n">res_diffs_2</span><span class="p">]</span>
+
+        <span class="n">all_charges</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">calculate_charges</span><span class="p">(</span><span class="n">pH</span> <span class="o">=</span> <span class="n">pH</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span><span class="p">)</span> <span class="k">for</span> <span class="n">pH</span> <span class="ow">in</span> <span class="n">pHs</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">res_diffs</span><span class="p">),</span> <span class="n">all_charges</span><span class="p">]</span> </div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters_continuous</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute effective chi from probabilistic sequences (differentiable).</span>
+
+<span class="sd">        Requires set_aa_interactions to have been called first to provide</span>
+<span class="sd">        the res_diffs and charge data in aa_interactions.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            aa_interactions: [res_diffs, all_charges] from set_aa_interactions.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of effective chi values, one per pH condition.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">rho0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;rho0&#39;</span><span class="p">]</span>
+        <span class="n">lB</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;lB&#39;</span><span class="p">]</span>
+        <span class="n">kappa</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;kappa&#39;</span><span class="p">]</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;a&#39;</span><span class="p">]</span>
+        <span class="n">Vh0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;Vh0&#39;</span><span class="p">]</span>
+
+        <span class="n">chi_eff</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calc_chi_eff</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">Vh0</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">chi_eff</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_pseq_charges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq</span><span class="p">,</span> <span class="n">charge</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute total net charge of a probabilistic sequence.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+<span class="sd">            charge: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Scalar total charge.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">pseq</span> <span class="o">*</span> <span class="n">charge</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_pseq_charge_locs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq</span><span class="p">,</span> <span class="n">charge</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-position charge of a probabilistic sequence.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+<span class="sd">            charge: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Per-position charges, shape (L,).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">pseq</span> <span class="o">*</span> <span class="n">charge</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calc_chi_eff_MFT</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">charge</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the mean-field theory electrostatic contribution to chi.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            rho0: Reference density.</span>
+<span class="sd">            lB: Bjerrum length.</span>
+<span class="sd">            kappa: Inverse Debye length.</span>
+<span class="sd">            charge: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Scalar mean-field chi contribution.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">N1</span> <span class="o">=</span> <span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">N2</span> <span class="o">=</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">sig_1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pseq_charges</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+        <span class="n">sig_2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pseq_charges</span><span class="p">(</span><span class="n">pseq2</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+        <span class="n">chi</span> <span class="o">=</span> <span class="o">-</span> <span class="mf">2.</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">lB</span> <span class="o">/</span> <span class="n">kappa</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">sig_1</span> <span class="o">*</span> <span class="n">sig_2</span> <span class="o">/</span> <span class="n">N1</span> <span class="o">/</span> <span class="n">N2</span>
+        <span class="k">return</span> <span class="n">chi</span> <span class="o">*</span> <span class="n">rho0</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calc_chi_eff_RPA</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">res_diffs</span><span class="p">,</span> <span class="n">charge</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the RPA fluctuation correction to chi.</span>
+
+<span class="sd">        Integrates the charge structure factor product over wavevector</span>
+<span class="sd">        space, accounting for chain connectivity through the Gaussian</span>
+<span class="sd">        connection tensor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            rho0: Reference density.</span>
+<span class="sd">            lB: Bjerrum length.</span>
+<span class="sd">            kappa: Inverse Debye length.</span>
+<span class="sd">            a: Smearing length scale.</span>
+<span class="sd">            res_diffs: [res_diffs_1, res_diffs_2] separation matrices.</span>
+<span class="sd">            charge: Per-residue-type charges, shape (23,).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Scalar RPA chi contribution.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">res_diffs_1</span> <span class="o">=</span> <span class="n">res_diffs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">res_diffs_2</span> <span class="o">=</span> <span class="n">res_diffs</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">kmax</span> <span class="o">=</span> <span class="mf">2.</span><span class="o">/</span><span class="n">a</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1e-15</span><span class="p">,</span> <span class="n">kmax</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="mf">3e2</span><span class="p">))</span>
+        <span class="n">k2</span> <span class="o">=</span> <span class="n">k</span><span class="o">**</span><span class="mi">2</span>
+        <span class="n">dk</span> <span class="o">=</span> <span class="n">k</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">Gamma4</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">2.</span> <span class="o">*</span> <span class="n">a</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">k2</span><span class="p">)</span>
+        <span class="n">b2k2_over_6</span> <span class="o">=</span> <span class="n">k2</span><span class="o">/</span><span class="mf">6.</span>
+
+        <span class="n">N1</span> <span class="o">=</span> <span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">sig_1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pseq_charge_locs</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+        <span class="n">connection_tensor_1</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span> <span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;ab,i-&gt;abi&#39;</span><span class="p">,</span> <span class="n">res_diffs_1</span><span class="p">,</span> <span class="n">b2k2_over_6</span><span class="p">))</span>
+        <span class="n">g0_1</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;a,b,abi-&gt;i&#39;</span><span class="p">,</span><span class="n">sig_1</span><span class="p">,</span> <span class="n">sig_1</span><span class="p">,</span> <span class="n">connection_tensor_1</span><span class="p">)</span> <span class="o">/</span> <span class="n">N1</span>
+
+
+        <span class="n">N2</span> <span class="o">=</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">sig_2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pseq_charge_locs</span><span class="p">(</span><span class="n">pseq2</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+        <span class="n">connection_tensor_2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span> <span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;ab,i-&gt;abi&#39;</span><span class="p">,</span> <span class="n">res_diffs_2</span><span class="p">,</span> <span class="n">b2k2_over_6</span><span class="p">))</span>
+        <span class="n">g0_2</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;a,b,abi-&gt;i&#39;</span><span class="p">,</span><span class="n">sig_2</span><span class="p">,</span> <span class="n">sig_2</span><span class="p">,</span> <span class="n">connection_tensor_2</span><span class="p">)</span> <span class="o">/</span> <span class="n">N2</span>
+        <span class="n">integrand</span> <span class="o">=</span> <span class="n">k2</span> <span class="o">/</span> <span class="p">(</span><span class="n">k2</span> <span class="o">+</span> <span class="n">kappa</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">Gamma4</span> <span class="o">*</span> <span class="n">g0_1</span> <span class="o">*</span> <span class="n">g0_2</span>
+        <span class="n">chi</span> <span class="o">=</span> <span class="mf">2.</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">lB</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">integrand</span><span class="p">)</span> <span class="o">*</span> <span class="n">dk</span>
+        <span class="k">return</span> <span class="n">chi</span> <span class="o">*</span> <span class="n">rho0</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calc_chi_h</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">Vh0</span><span class="p">,</span> <span class="n">rho0</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the short-range hydrophobic contribution to chi.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            Vh0: Hydrophobic interaction strength.</span>
+<span class="sd">            rho0: Reference density.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Scalar hydrophobic chi contribution.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">interaction_matrix</span> <span class="o">=</span> <span class="n">pseq1</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps_matrix</span> <span class="o">@</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">chi</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">Vh0</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">interaction_matrix</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">chi</span> <span class="o">*</span> <span class="n">rho0</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calc_chi_eff</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">Vh0</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the total effective chi as MFT + RPA + hydrophobic.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            rho0: Reference density.</span>
+<span class="sd">            lB: Bjerrum length.</span>
+<span class="sd">            kappa: Inverse Debye length.</span>
+<span class="sd">            a: Smearing length scale.</span>
+<span class="sd">            Vh0: Hydrophobic interaction strength.</span>
+<span class="sd">            aa_interactions: [res_diffs, all_charges] from set_aa_interactions.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of effective chi values, one per pH condition.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">res_diffs</span> <span class="o">=</span> <span class="n">aa_interactions</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">charges</span> <span class="o">=</span> <span class="n">aa_interactions</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">all_chi_effs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">charge</span> <span class="ow">in</span> <span class="n">charges</span><span class="p">:</span>
+            <span class="n">chi_RPA</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calc_chi_eff_RPA</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">res_diffs</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+            <span class="n">chi_MFT</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calc_chi_eff_MFT</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">lB</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="n">charge</span><span class="p">)</span>
+            <span class="n">chi_h</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calc_chi_h</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">Vh0</span><span class="p">,</span> <span class="n">rho0</span><span class="p">)</span>
+            <span class="n">all_chi_effs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chi_RPA</span> <span class="o">+</span> <span class="n">chi_MFT</span> <span class="o">+</span> <span class="n">chi_h</span><span class="p">)</span>
+            
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_chi_effs</span><span class="p">)</span></div>
+
+
+<span class="n">aliphatic_aas</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;A&#39;</span><span class="p">,</span> <span class="s1">&#39;I&#39;</span><span class="p">,</span> <span class="s1">&#39;L&#39;</span><span class="p">,</span> <span class="s1">&#39;M&#39;</span><span class="p">,</span> <span class="s1">&#39;V&#39;</span><span class="p">]</span>
+<span class="n">charged_aas</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">,</span> <span class="s1">&#39;E&#39;</span><span class="p">,</span> <span class="s1">&#39;K&#39;</span><span class="p">,</span> <span class="s1">&#39;R&#39;</span><span class="p">]</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.optimize</span><span class="w"> </span><span class="kn">import</span> <span class="n">root_scalar</span>
+<div class="viewcode-block" id="FINCHES_model">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FINCHES_model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;FINCHES-style interaction parameter model.</span>
+
+<span class="sd">    Computes pairwise residue interaction energies with optional</span>
+<span class="sd">    charge-context and aliphatic-cluster weighting corrections, then</span>
+<span class="sd">    decomposes the interaction matrix into attractive/repulsive</span>
+<span class="sd">    contributions relative to a null baseline.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="FINCHES_model.__init__">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ff_type</span><span class="p">,</span> <span class="n">pH_mode</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">,</span> <span class="n">use_charge</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the FINCHES model.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ff_type: Force field identifier.</span>
+<span class="sd">            pH_mode: &#39;normal&#39; or &#39;pH&#39; for charge calculation.</span>
+<span class="sd">            use_charge: If True, apply charge-context interaction weighting.</span>
+<span class="sd">            use_aliphatic: If True, apply aliphatic cluster weighting.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ff_type</span> <span class="o">=</span> <span class="n">ff_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span> <span class="o">=</span> <span class="n">pH_mode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_charge</span> <span class="o">=</span> <span class="n">use_charge</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_aliphatic</span> <span class="o">=</span> <span class="n">use_aliphatic</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="o">=</span> <span class="mf">1.0</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi_gg&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;GG_FINCHES&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_coul_func</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_wf_func</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span> <span class="o">=</span> <span class="mf">0.2</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="o">=</span> <span class="mf">1.0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.128533</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;mpipi&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">MPIPI_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;normal&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_coul_func</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_wf_func</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span> <span class="o">=</span> <span class="mf">0.2</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="o">=</span> <span class="mf">1.0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.066265</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_dignon&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Dignon&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_tesei&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Tesei&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_urry&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;Urry&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;hps_fb&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">HPS_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;FB&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados1&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;1&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_coul_func</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="o">=</span> <span class="mf">4.184</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;calvados2&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">Calvados_model</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s1">&#39;2&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span> <span class="o">=</span> <span class="mf">0.7</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.45</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="o">=</span> <span class="mf">4.184</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">swap_coul_func</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">ff_type</span> <span class="o">==</span> <span class="s1">&#39;kh-d&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">KHD_model</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid ff type: </span><span class="si">{</span><span class="n">ff_type</span><span class="si">}</span><span class="s2">, choose from mpipi, mpipi_gg, hps_dignon, hps_tesei, hps_urry, hps_fb, calvados1, calvados2, kh-d&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_charge</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Charge prefactor is not set for this ff type. Set use_charge to False or manually set the charge prefactor.&quot;</span><span class="p">)</span>
+
+        <span class="n">base_conditions</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">288</span><span class="p">,</span> <span class="mi">150</span><span class="p">,</span> <span class="mf">7.0</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_aa_interactions</span><span class="p">(</span><span class="n">base_conditions</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">get_null_interaction_baseline</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_aliphatic_residues">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_aliphatic_residues">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_aliphatic_residues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-position aliphatic probability from a probabilistic sequence.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Per-position aliphatic content, shape (L,).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">aliphatic_inds</span> <span class="o">=</span> <span class="p">[</span><span class="n">RES_ALPHA</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">aa</span><span class="p">)</span> <span class="k">for</span> <span class="n">aa</span> <span class="ow">in</span> <span class="n">aliphatic_aas</span><span class="p">]</span>
+        <span class="n">aliphatic_residues</span> <span class="o">=</span> <span class="n">pseq</span><span class="p">[:,</span> <span class="n">aliphatic_inds</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">aliphatic_residues</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.build_gap_merged_fragments">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.build_gap_merged_fragments">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_gap_merged_fragments</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ali_mask</span><span class="p">,</span> <span class="n">max_separation</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Identify contiguous aliphatic fragments, allowing small gaps.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ali_mask: Binary mask of aliphatic positions, shape (L,).</span>
+<span class="sd">            max_separation: Maximum number of non-aliphatic residues</span>
+<span class="sd">                allowed within a fragment before splitting.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of (start, end) tuples for each merged fragment.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fragments</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">seq_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ali_mask</span><span class="p">)</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">seq_len</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">ali_mask</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="n">i</span>
+                <span class="n">zeros_allowed</span> <span class="o">=</span> <span class="n">max_separation</span>
+                <span class="n">j</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">while</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="n">seq_len</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">ali_mask</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                        <span class="n">j</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="n">zeros_allowed</span> <span class="o">=</span> <span class="n">max_separation</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">zeros_allowed</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                            <span class="n">zeros_allowed</span> <span class="o">-=</span> <span class="mi">1</span>
+                            <span class="n">j</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="k">break</span>
+                <span class="c1"># trim trailing zeros from [start, j)</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">j</span>
+                <span class="k">while</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="n">start</span> <span class="ow">and</span> <span class="n">ali_mask</span><span class="p">[</span><span class="n">end</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">end</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="n">fragments</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">))</span>
+                <span class="n">i</span> <span class="o">=</span> <span class="n">j</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">fragments</span></div>
+
+    
+<div class="viewcode-block" id="FINCHES_model.get_aliphatic_weighting">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_aliphatic_weighting">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_aliphatic_weighting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq</span><span class="p">,</span> <span class="n">max_separation</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute per-position aliphatic cluster strength.</span>
+
+<span class="sd">        Assigns each aliphatic position a windowed count (clipped to 3)</span>
+<span class="sd">        reflecting the local density of aliphatic residues within its</span>
+<span class="sd">        merged fragment.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+<span class="sd">            max_separation: Gap tolerance for fragment merging.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Per-position cluster weights, shape (L,), values in [0, 3].</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ali</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_aliphatic_residues</span><span class="p">(</span><span class="n">pseq</span><span class="p">)</span>               <span class="c1"># shape (L,), float</span>
+        <span class="n">ali_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">ali</span> <span class="o">&gt;</span> <span class="mf">0.1</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>               <span class="c1"># shape (L,), int {0,1}</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ali_mask</span><span class="p">)</span>
+
+        <span class="c1"># 2) Gap-merged fragments (allow a single 0 inside)</span>
+        <span class="n">fragments</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_gap_merged_fragments</span><span class="p">(</span><span class="n">ali_mask</span><span class="p">,</span> <span class="n">max_separation</span><span class="o">=</span><span class="n">max_separation</span><span class="p">)</span>
+
+        <span class="c1"># 3) Per-position windowed counts clipped to fragment bounds</span>
+        <span class="n">groups</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">ali</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">w_half</span> <span class="o">=</span> <span class="mi">4</span>                                           <span class="c1"># original uses max_distance=4</span>
+        <span class="k">for</span> <span class="n">f_start</span><span class="p">,</span> <span class="n">f_end</span> <span class="ow">in</span> <span class="n">fragments</span><span class="p">:</span>
+            <span class="n">frag</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">ali_mask</span><span class="p">[</span><span class="n">f_start</span><span class="p">:</span><span class="n">f_end</span><span class="p">])</span>   <span class="c1"># local fragment as 0/1 ints</span>
+            <span class="n">l</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">frag</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+            <span class="c1"># iterate local indices j where frag[j] == 1</span>
+            <span class="k">for</span> <span class="n">j_local</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">l</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">frag</span><span class="p">[</span><span class="n">j_local</span><span class="p">])</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">continue</span>
+
+                <span class="k">if</span> <span class="n">l</span> <span class="o">&lt;=</span> <span class="n">w_half</span><span class="p">:</span>
+                    <span class="c1"># small fragment: whole fragment window</span>
+                    <span class="n">count</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">frag</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># branchy window selection (matches original)</span>
+                    <span class="c1"># left-edge: window starts at 0</span>
+                    <span class="k">if</span> <span class="p">(</span><span class="n">w_half</span> <span class="o">&gt;=</span> <span class="n">j_local</span><span class="p">)</span> <span class="ow">and</span> <span class="p">((</span><span class="n">j_local</span> <span class="o">+</span> <span class="n">w_half</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">l</span><span class="p">):</span>
+                        <span class="n">left</span> <span class="o">=</span> <span class="mi">0</span>
+                        <span class="n">right</span> <span class="o">=</span> <span class="n">j_local</span> <span class="o">+</span> <span class="n">w_half</span> <span class="o">+</span> <span class="mi">1</span>
+                    <span class="c1"># right-edge: window ends at l</span>
+                    <span class="k">elif</span> <span class="p">(</span><span class="n">j_local</span> <span class="o">+</span> <span class="n">w_half</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">l</span><span class="p">:</span>
+                        <span class="n">left</span> <span class="o">=</span> <span class="n">j_local</span> <span class="o">-</span> <span class="n">w_half</span>
+                        <span class="n">right</span> <span class="o">=</span> <span class="n">l</span>
+                    <span class="c1"># middle: symmetric window</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">left</span> <span class="o">=</span> <span class="n">j_local</span> <span class="o">-</span> <span class="n">w_half</span>
+                        <span class="n">right</span> <span class="o">=</span> <span class="n">j_local</span> <span class="o">+</span> <span class="n">w_half</span> <span class="o">+</span> <span class="mi">1</span>
+
+                    <span class="c1"># count 1s in local window</span>
+                    <span class="n">count</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">frag</span><span class="p">[</span><span class="n">left</span><span class="p">:</span><span class="n">right</span><span class="p">])</span>
+
+                <span class="n">groups</span> <span class="o">=</span> <span class="n">groups</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">f_start</span> <span class="o">+</span> <span class="n">j_local</span><span class="p">]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">groups</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_multiplier_weight_vectorized">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_multiplier_weight_vectorized">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_multiplier_weight_vectorized</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w1</span><span class="p">,</span> <span class="n">w2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute pairwise interaction multiplier from aliphatic cluster weights.</span>
+
+<span class="sd">        Maps the minimum of two cluster weights to a multiplier in [1, 3]</span>
+<span class="sd">        with a linear-then-quadratic profile.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            w1: Cluster weights for sequence 1 (broadcastable).</span>
+<span class="sd">            w2: Cluster weights for sequence 2 (broadcastable).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Pairwise multiplier array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">w1_clipped</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">w1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">)</span>
+        <span class="n">w2_clipped</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">w2</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">)</span>
+        
+        <span class="n">excess_1</span> <span class="o">=</span> <span class="n">w1_clipped</span> <span class="o">-</span> <span class="mf">1.0</span>
+        <span class="n">excess_2</span> <span class="o">=</span> <span class="n">w2_clipped</span> <span class="o">-</span> <span class="mf">1.0</span>
+        <span class="n">min_excess</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">excess_1</span><span class="p">,</span> <span class="n">excess_2</span><span class="p">)</span>
+        
+        <span class="n">quadratic_boost</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">min_excess</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span>
+        
+        <span class="n">multiplier</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">min_excess</span> <span class="o">+</span> <span class="mf">1.0</span> <span class="o">*</span> <span class="n">quadratic_boost</span>
+        
+        <span class="k">return</span> <span class="n">multiplier</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_aliphatic_interaction_weighting">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_aliphatic_interaction_weighting">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_aliphatic_interaction_weighting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the L1 x L2 aliphatic interaction multiplier matrix.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Multiplier matrix, shape (L1, L2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">weighting_1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_aliphatic_weighting</span><span class="p">(</span><span class="n">pseq1</span><span class="p">)</span>
+        <span class="n">weighting_2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_aliphatic_weighting</span><span class="p">(</span><span class="n">pseq2</span><span class="p">)</span>
+        
+        <span class="n">weighting_1_expanded</span> <span class="o">=</span> <span class="n">weighting_1</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>  
+        <span class="n">weighting_2_expanded</span> <span class="o">=</span> <span class="n">weighting_2</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> 
+        
+        <span class="n">weighting_overall</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_multiplier_weight_vectorized</span><span class="p">(</span><span class="n">weighting_1_expanded</span><span class="p">,</span> <span class="n">weighting_2_expanded</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">weighting_overall</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_neighbors_window_of3">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_neighbors_window_of3">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_neighbors_window_of3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">pseq</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Extract a 3-residue window centered at position i (clamped at edges).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            i: Center position index.</span>
+<span class="sd">            pseq: Probabilistic sequence, shape (L, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Window slice of pseq, shape (2 or 3, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">pseq</span><span class="p">[:</span><span class="n">i</span><span class="o">+</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="n">pseq</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">pseq</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">pseq</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">2</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.calculacte_FCR_NCPR">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.calculacte_FCR_NCPR">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculacte_FCR_NCPR</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">window</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute fraction of charged residues and net charge per residue.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            window: Slice of probabilistic sequence, shape (W, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (FCR, NCPR) scalars.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pos_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">RES_ALPHA</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">aa</span><span class="p">)</span> <span class="k">for</span> <span class="n">aa</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;K&#39;</span><span class="p">,</span> <span class="s1">&#39;R&#39;</span><span class="p">]]</span>
+        <span class="n">neg_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">RES_ALPHA</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">aa</span><span class="p">)</span> <span class="k">for</span> <span class="n">aa</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;D&#39;</span><span class="p">,</span> <span class="s1">&#39;E&#39;</span><span class="p">]]</span>
+
+        <span class="n">pos_count</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">window</span><span class="p">[:,</span> <span class="n">pos_indices</span><span class="p">],</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">neg_count</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">window</span><span class="p">[:,</span> <span class="n">neg_indices</span><span class="p">],</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">))</span>
+
+        <span class="n">total_charged</span> <span class="o">=</span> <span class="n">pos_count</span> <span class="o">+</span> <span class="n">neg_count</span>
+        <span class="n">fcr</span> <span class="o">=</span> <span class="n">total_charged</span> <span class="o">/</span> <span class="n">window</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">ncpr</span> <span class="o">=</span> <span class="p">(</span><span class="n">pos_count</span> <span class="o">-</span> <span class="n">neg_count</span><span class="p">)</span> <span class="o">/</span> <span class="n">window</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">fcr</span><span class="p">,</span> <span class="n">ncpr</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_charge_interaction_weighting">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_charge_interaction_weighting">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_charge_interaction_weighting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute an L1 x L2 charge-context weighting mask.</span>
+
+<span class="sd">        For each pair of charged residue positions, computes |NCPR/FCR|</span>
+<span class="sd">        of their combined 3-residue windows to modulate the interaction.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Charge weighting matrix, shape (L1, L2).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">seq1</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">RES_ALPHA</span><span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">pseq1</span><span class="p">[</span><span class="n">i</span><span class="p">])]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="n">seq2</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">RES_ALPHA</span><span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">pseq2</span><span class="p">[</span><span class="n">i</span><span class="p">])]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">pseq1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="n">seq1</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="ow">in</span> <span class="n">charged_aas</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">pseq2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                    <span class="k">if</span> <span class="n">seq2</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="ow">in</span> <span class="n">charged_aas</span><span class="p">:</span>
+                        <span class="n">window1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_neighbors_window_of3</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">)</span>
+                        <span class="n">window2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_neighbors_window_of3</span><span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">)</span>
+
+                        <span class="n">combined_window</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">window1</span><span class="p">,</span> <span class="n">window2</span><span class="p">])</span>
+
+                        <span class="n">fcr</span><span class="p">,</span> <span class="n">ncpr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calculacte_FCR_NCPR</span><span class="p">(</span><span class="n">combined_window</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="n">fcr</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+                            <span class="n">charge_weight</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">ncpr</span> <span class="o">/</span> <span class="n">fcr</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">charge_weight</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+                        <span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">charge_weight</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.get_null_interaction_baseline">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.get_null_interaction_baseline">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_null_interaction_baseline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lower_end</span> <span class="o">=</span> <span class="o">-</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">upper_end</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">,</span> <span class="n">alternative_sequence</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Calibrate the null interaction baseline using a GS-repeat sequence.</span>
+
+<span class="sd">        Finds the baseline value such that a (GS)_200 sequence yields</span>
+<span class="sd">        zero net interaction (root-finding on the interaction parameter).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            lower_end: Lower bracket for root finding.</span>
+<span class="sd">            upper_end: Upper bracket for root finding.</span>
+<span class="sd">            alternative_sequence: Use this sequence instead of &#39;GS&#39;*200.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+        <span class="k">if</span> <span class="n">alternative_sequence</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">alternative_sequence</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="s1">&#39;GS&#39;</span> <span class="o">*</span> <span class="mi">200</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">f</span><span class="p">(</span><span class="n">null_interaction_baseline</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">return_interaction_parameters</span><span class="p">(</span><span class="n">seq</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="n">null_interaction_baseline</span><span class="p">,</span> <span class="n">use_charge</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">root_scalar</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">bracket</span> <span class="o">=</span> <span class="p">(</span><span class="n">lower_end</span><span class="p">,</span> <span class="n">upper_end</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">root</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span></div>
+
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_aa_interactions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">all_conditions</span><span class="p">,</span> <span class="n">r0</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">r1</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">num_steps</span><span class="o">=</span><span class="mi">2991</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Precompute the 23x23 pairwise residue interaction matrix per condition.</span>
+
+<span class="sd">        Integrates unbonded potentials over [sigma, 3*sigma] for each</span>
+<span class="sd">        residue-type pair, yielding a condition-dependent interaction matrix.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            all_conditions: List of (temp, salt, pH) tuples.</span>
+<span class="sd">            r0: Radial grid lower bound (Angstroms).</span>
+<span class="sd">            r1: Radial grid upper bound (Angstroms).</span>
+<span class="sd">            num_steps: Number of radial grid points.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of shape (N_conditions, 23, 23).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">r0</span><span class="p">,</span> <span class="n">r1</span><span class="p">,</span> <span class="n">num_steps</span><span class="p">)</span>
+        <span class="n">dr</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+        <span class="n">all_unbonded_interactions</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">condition</span> <span class="ow">in</span> <span class="n">all_conditions</span><span class="p">:</span>
+            <span class="n">pair_interactions_itr</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">))</span>
+            <span class="n">temp</span><span class="p">,</span> <span class="n">salt</span><span class="p">,</span> <span class="n">pH</span> <span class="o">=</span> <span class="n">condition</span>
+            <span class="n">charges</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">calculate_charges</span><span class="p">(</span><span class="n">pH</span><span class="o">=</span><span class="n">pH</span><span class="p">,</span> <span class="n">pH_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">pH_mode</span><span class="p">)</span>
+
+            <span class="c1"># how FINCHES handles histidines with calvados</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">==</span> <span class="s1">&#39;Calvados1&#39;</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">ff_name</span> <span class="o">==</span> <span class="s1">&#39;Calvados2&#39;</span><span class="p">:</span>
+                <span class="n">charges</span> <span class="o">=</span> <span class="n">charges</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">RES_ALPHA</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;H&#39;</span><span class="p">)]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="mf">1.</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="n">pH</span> <span class="o">-</span> <span class="mf">6.0</span><span class="p">)))</span>
+
+
+            <span class="n">pair_charges</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">create_pair_charges</span><span class="p">(</span><span class="n">charges</span><span class="p">)</span>
+            <span class="n">unbonded_interactions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">calculate_unbonded</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pair_charges</span><span class="p">,</span> <span class="n">salt</span><span class="p">,</span> <span class="n">temp</span><span class="p">)</span>  <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">unit_conv</span> <span class="c1"># (529, len(r))</span>
+
+            <span class="n">s1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">sigma_flattened</span>             <span class="c1"># (529,)</span>
+            <span class="n">s3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">sigma_flattened</span> <span class="o">*</span> <span class="mf">3.0</span>       <span class="c1"># (529,)</span>
+
+            <span class="c1"># nearest r indices to each s1 and s3 entry</span>
+            <span class="n">s1_idx</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">s1</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">s3_idx</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">s3</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">s1_idx_reshaped</span> <span class="o">=</span> <span class="n">s1_idx</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">)</span>
+            <span class="n">s3_idx_reshaped</span> <span class="o">=</span> <span class="n">s3_idx</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">)</span>
+
+            <span class="n">r_idx</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">unbonded_interactions</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>  <span class="c1"># (1, N)</span>
+
+
+            <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">r_idx</span> <span class="o">&gt;=</span> <span class="n">s1_idx</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">r_idx</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">s3_idx</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]))</span>  <span class="c1"># (529, N)</span>
+            <span class="n">segment_mask</span> <span class="o">=</span> <span class="n">mask</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&amp;</span> <span class="n">mask</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:]</span>
+
+            <span class="n">segments</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">unbonded_interactions</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">unbonded_interactions</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:])</span> <span class="o">*</span> <span class="n">dr</span>
+            <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span> <span class="o">*</span> <span class="n">dr</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">segment_mask</span>
+
+            <span class="n">pair_integrals</span> <span class="o">=</span> <span class="mi">100</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">reshaped_pair_integrals</span> <span class="o">=</span> <span class="n">pair_integrals</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">NUM_RESIDUES</span><span class="p">,</span> <span class="n">NUM_RESIDUES</span><span class="p">)</span>
+
+            <span class="n">all_unbonded_interactions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">reshaped_pair_integrals</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_unbonded_interactions</span><span class="p">)</span> <span class="c1">#N_conditions x NUM_RESIDUES**2</span>
+
+<div class="viewcode-block" id="FINCHES_model.return_interaction_parameters">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.return_interaction_parameters">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq1</span><span class="p">,</span> <span class="n">seq2</span><span class="p">,</span> <span class="n">aa_interactions</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_charge</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute FINCHES interaction parameters from sequence strings.</span>
+
+<span class="sd">        Builds the pairwise interaction matrix W, applies charge and</span>
+<span class="sd">        aliphatic weightings, then decomposes into attractive/repulsive</span>
+<span class="sd">        components relative to the null baseline.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            seq1: First amino acid sequence string.</span>
+<span class="sd">            seq2: Second amino acid sequence string.</span>
+<span class="sd">            aa_interactions: Precomputed 23x23 matrices. If None, uses stored values.</span>
+<span class="sd">            null_interaction_baseline: Override the calibrated baseline.</span>
+<span class="sd">            use_charge: Override the charge weighting flag.</span>
+<span class="sd">            use_aliphatic: Override the aliphatic weighting flag.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of epsilon values, one per condition.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pseq1</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq1</span><span class="p">)</span>
+        <span class="n">pseq2</span> <span class="o">=</span> <span class="n">seq_to_one_hot</span><span class="p">(</span><span class="n">seq2</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">null_interaction_baseline</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span>
+        <span class="k">if</span> <span class="n">use_charge</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">use_charge</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_charge</span>
+        <span class="k">if</span> <span class="n">use_aliphatic</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_aliphatic</span>
+
+        <span class="n">all_eps</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">aa_interaction</span> <span class="ow">in</span> <span class="n">aa_interactions</span><span class="p">:</span>
+            <span class="n">W</span> <span class="o">=</span> <span class="n">pseq1</span> <span class="o">@</span> <span class="n">aa_interaction</span> <span class="o">@</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">T</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_charge</span><span class="p">:</span>
+                <span class="n">charge_mask</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_charge_interaction_weighting</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                <span class="n">charge_pref</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span><span class="p">)</span>
+                <span class="n">W</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">charge_mask</span> <span class="o">*</span> <span class="n">charge_pref</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_aliphatic</span><span class="p">:</span>
+                <span class="n">aliph_mask</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_aliphatic_interaction_weighting</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                <span class="n">W</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="n">aliph_mask</span>
+
+            <span class="n">baseline</span> <span class="o">=</span> <span class="n">null_interaction_baseline</span>
+            <span class="n">attractive_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">W</span> <span class="o">&lt;</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">repulsive_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">W</span> <span class="o">&gt;</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+            <span class="n">attractive_matrix</span> <span class="o">=</span> <span class="n">attractive_matrix</span> <span class="o">-</span> <span class="n">baseline</span>
+            <span class="n">repulsive_matrix</span> <span class="o">=</span> <span class="n">repulsive_matrix</span> <span class="o">-</span> <span class="n">baseline</span>
+
+            <span class="n">attractive_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">attractive_matrix</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">repulsive_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">repulsive_matrix</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">epsilon</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">attractive_vector</span><span class="p">)</span> <span class="o">+</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">repulsive_vector</span><span class="p">)</span>
+            <span class="n">all_eps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">epsilon</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_eps</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FINCHES_model.return_interaction_parameters_pseqs">
+<a class="viewcode-back" href="../../api/prediction_model.html#models.prediction_model.FINCHES_model.return_interaction_parameters_pseqs">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">return_interaction_parameters_pseqs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">,</span> <span class="n">aa_interactions</span><span class="p">,</span> <span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_charge</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute FINCHES interaction parameters from probabilistic sequences.</span>
+
+<span class="sd">        Same as return_interaction_parameters but operates on pseq arrays</span>
+<span class="sd">        directly. Not JIT-compiled due to Python-level branching in the</span>
+<span class="sd">        charge and aliphatic weighting logic.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pseq1: Probabilistic sequence 1, shape (L1, 23).</span>
+<span class="sd">            pseq2: Probabilistic sequence 2, shape (L2, 23).</span>
+<span class="sd">            aa_interactions: Precomputed 23x23 matrices per condition.</span>
+<span class="sd">            null_interaction_baseline: Override the calibrated baseline.</span>
+<span class="sd">            use_charge: Override the charge weighting flag.</span>
+<span class="sd">            use_aliphatic: Override the aliphatic weighting flag.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Array of epsilon values, one per condition.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">null_interaction_baseline</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">null_interaction_baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">null_interaction_baseline</span>
+        <span class="k">if</span> <span class="n">use_charge</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">use_charge</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_charge</span>
+        <span class="k">if</span> <span class="n">use_aliphatic</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">use_aliphatic</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_aliphatic</span>
+
+        <span class="n">all_eps</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">aa_interaction</span> <span class="ow">in</span> <span class="n">aa_interactions</span><span class="p">:</span>
+            <span class="n">W</span> <span class="o">=</span> <span class="n">pseq1</span> <span class="o">@</span> <span class="n">aa_interaction</span> <span class="o">@</span> <span class="n">pseq2</span><span class="o">.</span><span class="n">T</span>
+
+            <span class="n">charge_mask</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_charge_interaction_weighting</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+            <span class="n">charge_pref</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">charge_prefactor</span><span class="p">)</span>
+            <span class="n">W</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">charge_mask</span> <span class="o">*</span> <span class="n">charge_pref</span><span class="p">)</span>
+
+            <span class="n">aliph_mask</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_aliphatic_interaction_weighting</span><span class="p">(</span><span class="n">pseq1</span><span class="p">,</span> <span class="n">pseq2</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+            <span class="n">W</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="n">aliph_mask</span>
+
+            <span class="n">baseline</span> <span class="o">=</span> <span class="n">null_interaction_baseline</span>
+            <span class="n">attractive_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">W</span> <span class="o">&lt;</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">repulsive_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">W</span> <span class="o">&gt;</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+            <span class="n">attractive_matrix</span> <span class="o">=</span> <span class="n">attractive_matrix</span> <span class="o">-</span> <span class="n">baseline</span>
+            <span class="n">repulsive_matrix</span> <span class="o">=</span> <span class="n">repulsive_matrix</span> <span class="o">-</span> <span class="n">baseline</span>
+
+            <span class="n">attractive_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">attractive_matrix</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">repulsive_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">repulsive_matrix</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">epsilon</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">attractive_vector</span><span class="p">)</span> <span class="o">+</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">repulsive_vector</span><span class="p">)</span>
+            <span class="n">all_eps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">epsilon</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_eps</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+    <div class="clearer"></div>
+  </div>
+    <div class="footer">
+      &#169;2026, Neha Tyagi, Jackson Boodry, Vita Chou, Wilton Snead, Krishna Shrinivas.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
