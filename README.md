@@ -30,7 +30,7 @@ conda activate idp_design
 ## Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/shrinivaslab/2026_tyagi_boodry_idp_design.git
 cd 2026_tyagi_boodry_idp_design
 ```
 
